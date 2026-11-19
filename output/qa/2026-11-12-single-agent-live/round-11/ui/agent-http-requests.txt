@@ -1,0 +1,20 @@
+182. [GET] http://127.0.0.1:5173/api/agents/catalog?project_id=9 => [200] OK
+184. [GET] http://127.0.0.1:5173/api/agents/runs/active?project_id=9&workflow_key=test_generation => [200] OK
+185. [GET] http://127.0.0.1:5173/api/agents/catalog?project_id=9 => [200] OK
+187. [GET] http://127.0.0.1:5173/api/agents/runs/active?project_id=9&workflow_key=test_generation => [200] OK
+193. [GET] http://127.0.0.1:5173/api/agents/runs?project_id=9&limit=200 => [200] OK
+197. [GET] http://127.0.0.1:5173/api/agents/runs?project_id=9&limit=200 => [200] OK
+199. [GET] http://127.0.0.1:5173/api/agents/runs?project_id=9&limit=1&workflow_key=test_generation => [200] OK
+200. [GET] http://127.0.0.1:5173/api/agents/runs/48/events?after_sequence=0&limit=200 => [200] OK
+201. [GET] http://127.0.0.1:5173/api/agents/runs/active?project_id=9&workflow_key=test_generation => [200] OK
+210. [GET] http://127.0.0.1:5173/api/agents/catalog?project_id=8 => [200] OK
+212. [GET] http://127.0.0.1:5173/api/agents/runs/active?project_id=8&workflow_key=test_generation => [200] OK
+214. [GET] http://127.0.0.1:5173/api/agents/runs?project_id=8&limit=200 => [200] OK
+216. [GET] http://127.0.0.1:5173/api/agents/catalog?project_id=8 => [200] OK
+218. [GET] http://127.0.0.1:5173/api/agents/runs/active?project_id=8&workflow_key=test_generation => [200] OK
+221. [GET] http://127.0.0.1:5173/api/agents/runs?project_id=8&limit=1&workflow_key=test_generation => [200] OK
+222. [GET] http://127.0.0.1:5173/api/agents/runs/59/events?after_sequence=0&limit=200 => [200] OK
+223. [GET] http://127.0.0.1:5173/api/agents/runs/active?project_id=8&workflow_key=test_generation => [200] OK
+224. [GET] http://127.0.0.1:5173/api/agents/runs/59/events?after_sequence=200&limit=200 => [200] OK
+
+Note: 105 static requests not shown, run with "static" option to see them.

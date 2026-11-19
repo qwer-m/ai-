@@ -1,0 +1,116 @@
+--- a/backend/modules/agent_platform/test_generation_batching.py
++++ b/backend/modules/agent_platform/test_generation_batching.py
+@@ -1648,6 +1648,65 @@
+     return result
+ 
+ 
++def _prepare_default_generation_layout(
++    *, module_facts_by_index: list[list[dict[str, Any]]],
++    design_items_by_module: list[list[dict[str, Any]]], routes_by_module: list[list[dict[str, Any]]],
++    case_budget: int, batch_case_limit: int, model_projection: Any,
++) -> tuple[list[list[list[dict[str, Any]]]], list[int], list[list[list[dict[str, Any]]]]]:
++    """预算内确定性细化来源分组，完整支持闭包与用例预算在同一阶段验收。"""
++    groups_by_module = [_generation_fact_groups(facts, model_projection=model_projection)
++                        for facts in module_facts_by_index]
++    while True:
++        targets = _allocate_module_case_targets(
++            module_facts_by_index=module_facts_by_index,
++            module_fact_groups_by_index=groups_by_module, case_budget=case_budget,
++            batch_case_limit=batch_case_limit, model_projection=model_projection,
++        )
++        groups_by_module = [_expand_generation_fact_groups(
++            groups, target_count=max(len(groups), math.ceil(target / batch_case_limit)),
++            model_projection=model_projection,
++        ) for groups, target in zip(groups_by_module, targets, strict=True)]
++        designs_by_module = []
++        for facts, groups, designs, routes in zip(
++            module_facts_by_index, groups_by_module, design_items_by_module, routes_by_module, strict=True,
++        ):
++            try:
++                designs_by_module.append(_allocate_test_design_items_to_fact_groups(
++                    design_items=designs, fact_groups=groups, fact_design_routes=routes,
++                    model_projection=model_projection,
++                ))
++            except OutputValidationError as error:
++                if (error.details.get("reason") != "generation_group_capacity_exhausted"
++                        or sum(len(values) for values in groups_by_module) >= case_budget):
++                    raise
++                support = set(error.details["support_fact_ids"])
++                facts_by_id = {fact["fact_id"]: fact for fact in facts}
++                candidates = []
++                for group_index, group in enumerate(groups):
++                    split = _split_generation_fact_group(group, model_projection=model_projection)
++                    if split is None:
++                        continue
++                    # 按本次失败支持闭包衡量细分后的真实容量，不引入业务关键词或固定预留。
++                    capacities = [generation_context_capacity(
++                        [facts_by_id[identity] for identity in sorted(support | {fact["fact_id"] for fact in part})],
++                        model_projection=model_projection,
++                    ) for part in split]
++                    best = min((
++                        len(capacity["violations"]),
++                        max(capacity["actual"][key] / limit for key, limit in capacity["limits"].items()),
++                        capacity["actual"]["fact_json_chars"],
++                    ) for capacity in capacities)
++                    candidates.append((best, group_index, split))
++                if not candidates:
++                    raise
++                _, group_index, split = min(candidates, key=lambda value: (value[0], value[1]))
++                groups[group_index:group_index + 1] = split
++                # 每次严格增加一组且不复制事实；总组数受原用例预算限制，不能无限细化。
++                break
++        else:
++            return groups_by_module, targets, designs_by_module
++
++
+ def prepare_test_case_batches(
+     context: ToolExecutionContext,
+     arguments: dict[str, Any],
+@@ -1677,10 +1736,6 @@
+     if batch_case_limit < 1 or batch_case_limit > 20:
+         raise ValueError("batch_case_limit 必须在 1 到 20 之间")
+ 
+-    module_fact_groups_by_index = [
+-        _generation_fact_groups(module_facts, model_projection=model_projection)
+-        for module_facts in module_facts_by_index
+-    ]
+     supports_by_module = [{item["test_design_item_id"]: [route["fact_id"] for route in routes
+                            if index in route["test_design_item_indexes"]]
+                            for index, item in enumerate(designs)}
+@@ -1695,17 +1750,10 @@
+         )
+         module_targets = [sum(budgets) for budgets in explicit_budgets]
+     else:
+-        module_design_batches = [_allocate_test_design_items_to_fact_groups(
+-            design_items=designs, fact_groups=groups, fact_design_routes=routes,
+-            model_projection=model_projection,
+-        ) for designs, groups, routes in zip(active_design_items_by_module, module_fact_groups_by_index,
+-                                             active_fact_design_routes_by_module, strict=True)]
+-        module_targets = _allocate_module_case_targets(
+-            module_facts_by_index=module_facts_by_index,
+-            module_fact_groups_by_index=module_fact_groups_by_index,
+-            case_budget=case_budget,
+-            batch_case_limit=batch_case_limit,
+-            model_projection=model_projection,
++        module_fact_groups_by_index, module_targets, module_design_batches = _prepare_default_generation_layout(
++            module_facts_by_index=module_facts_by_index, design_items_by_module=active_design_items_by_module,
++            routes_by_module=active_fact_design_routes_by_module, case_budget=case_budget,
++            batch_case_limit=batch_case_limit, model_projection=model_projection,
+         )
+ 
+     items: list[dict[str, Any]] = []
+@@ -1720,14 +1768,6 @@
+         if explicit_layout:
+             batch_budgets = explicit_budgets[module_index]
+         else:
+-            minimum_batch_count = math.ceil(module_target / batch_case_limit)
+-            if len(fact_groups) < minimum_batch_count:
+-                fact_groups = _expand_generation_fact_groups([group for group in fact_groups if group], target_count=minimum_batch_count, model_projection=model_projection)
+-                design_items_by_batch = _allocate_test_design_items_to_fact_groups(
+-                    design_items=active_design_items_by_module[module_index], fact_groups=fact_groups,
+-                    fact_design_routes=active_fact_design_routes_by_module[module_index],
+-                    model_projection=model_projection,
+-                )
+             batch_budgets = _allocate_generation_batch_budgets(
+                 fact_groups,
+                 case_target=module_target,

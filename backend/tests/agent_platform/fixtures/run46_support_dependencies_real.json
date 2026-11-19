@@ -1,0 +1,692 @@
+{
+  "source_run_id": 46,
+  "source_node_id": 370,
+  "source_snapshot_sha256": "eaf85973f0954811788d8eebe65d809840496bd5916cfd4a2c2655296b5f8493",
+  "support_input": {
+    "module_name": "机构列表",
+    "module_index": 5,
+    "candidate_facts": [
+      {
+        "fact_id": "DOC288-P0001-F-288-1-04",
+        "fact_ref": "RF-001",
+        "scope_id": "EV-0001",
+        "assertion": "缴费类型入口精简为两类。",
+        "current_test_design_item_indexes": []
+      },
+      {
+        "fact_id": "DOC288-P0001-F-288-1-05",
+        "fact_ref": "RF-002",
+        "scope_id": "EV-0001",
+        "assertion": "移除「新增门店缴费」「城市/区域新增门店」「门店续费」「新版升级代理」四个缴费入口。",
+        "current_test_design_item_indexes": []
+      },
+      {
+        "fact_id": "DOC288-P0001-F-288-1-06",
+        "fact_ref": "RF-003",
+        "scope_id": "EV-0001",
+        "assertion": "机构列表中，二级分销机构条目直接展示其关联的一级分销机构。",
+        "current_test_design_item_indexes": [
+          7
+        ]
+      },
+      {
+        "fact_id": "DOC288-P0001-F-288-1-07",
+        "fact_ref": "RF-004",
+        "scope_id": "EV-0001",
+        "assertion": "每个二级分销机构固定1个门店。",
+        "current_test_design_item_indexes": []
+      },
+      {
+        "fact_id": "DOC288-P0001-F-288-1-08",
+        "fact_ref": "RF-005",
+        "scope_id": "EV-0001",
+        "assertion": "一级分销机构详情不再展示门店数量。",
+        "current_test_design_item_indexes": []
+      },
+      {
+        "fact_id": "DOC288-P0001-F-288-1-09",
+        "fact_ref": "RF-006",
+        "scope_id": "EV-0001",
+        "assertion": "「新建机构」页面改为专属的「新建一级分销机构」页面。",
+        "current_test_design_item_indexes": []
+      },
+      {
+        "fact_id": "DOC288-P0001-F-288-1-10",
+        "fact_ref": "RF-007",
+        "scope_id": "EV-0001",
+        "assertion": "新建一级分销机构页面新增「关联线索」字段。",
+        "current_test_design_item_indexes": []
+      },
+      {
+        "fact_id": "DOC288-P0001-F-288-1-11",
+        "fact_ref": "RF-008",
+        "scope_id": "EV-0001",
+        "assertion": "新建一级分销机构页面新增「关联普通机构」字段。",
+        "current_test_design_item_indexes": []
+      },
+      {
+        "fact_id": "DOC288-P0010-P10-F01",
+        "fact_ref": "RF-001",
+        "scope_id": "EV-0021",
+        "assertion": "缴费状态是机构列表的筛选维度之一，其选项为未缴费与已缴费。",
+        "current_test_design_item_indexes": [
+          0
+        ]
+      },
+      {
+        "fact_id": "DOC288-P0010-P10-F02",
+        "fact_ref": "RF-002",
+        "scope_id": "EV-0021",
+        "assertion": "机构范围是机构列表的筛选维度之一，其选项为我的机构与全部。",
+        "current_test_design_item_indexes": [
+          1
+        ]
+      },
+      {
+        "fact_id": "DOC288-P0010-P10-F03",
+        "fact_ref": "RF-003",
+        "scope_id": "EV-0021",
+        "assertion": "机构类型是机构列表的筛选维度之一，其选项为普通机构、一级分销机构与二级分销机构。",
+        "current_test_design_item_indexes": [
+          2
+        ]
+      },
+      {
+        "fact_id": "DOC288-P0010-P10-F04",
+        "fact_ref": "RF-004",
+        "scope_id": "EV-0021",
+        "assertion": "同一筛选维度内，「全部」与具体选项互斥，不能同时选中。",
+        "current_test_design_item_indexes": [
+          3
+        ]
+      },
+      {
+        "fact_id": "DOC288-P0010-P10-F05",
+        "fact_ref": "RF-005",
+        "scope_id": "EV-0021",
+        "assertion": "机构列表条目展示机构名称、机构类型、销售或联系人、已缴金额与合同金额。",
+        "current_test_design_item_indexes": [
+          6
+        ]
+      },
+      {
+        "fact_id": "DOC288-P0010-P10-F06",
+        "fact_ref": "RF-006",
+        "scope_id": "EV-0021",
+        "assertion": "机构类型为二级分销机构时，机构列表条目在联系人（销售）下方额外展示其关联的一级分销机构名称。",
+        "current_test_design_item_indexes": [
+          7
+        ]
+      },
+      {
+        "fact_id": "DOC288-P0010-P10-F07",
+        "fact_ref": "RF-007",
+        "scope_id": "EV-0021",
+        "assertion": "二级分销机构条目额外展示的关联一级信息由紫色「关联一级」标签加一级机构名称组成。",
+        "current_test_design_item_indexes": [
+          7
+        ]
+      },
+      {
+        "fact_id": "DOC288-P0010-P10-F08",
+        "fact_ref": "RF-008",
+        "scope_id": "EV-0021",
+        "assertion": "一级分销机构与普通机构条目不在列表中展示关联一级机构名称这一行。",
+        "current_test_design_item_indexes": [
+          8
+        ]
+      },
+      {
+        "fact_id": "DOC288-P0010-P10-F09",
+        "fact_ref": "RF-001",
+        "scope_id": "EV-0022",
+        "assertion": "机构管理页面提供标题为「查看筛选」的筛选弹窗，弹窗内含选择缴费状态、选择机构范围、选择机构类型三组筛选项，以及底部「确定」按钮。",
+        "current_test_design_item_indexes": [
+          4
+        ]
+      },
+      {
+        "fact_id": "DOC288-P0010-P10-F10",
+        "fact_ref": "RF-002",
+        "scope_id": "EV-0022",
+        "assertion": "筛选弹窗中缴费状态、机构范围、机构类型三组筛选项均以复选框形式呈现，可逐项勾选。",
+        "current_test_design_item_indexes": [
+          4
+        ]
+      },
+      {
+        "fact_id": "DOC288-P0010-P10-F12",
+        "fact_ref": "RF-001",
+        "scope_id": "EV-0023",
+        "assertion": "机构列表页顶部提供搜索框，其占位提示为「请输入机构或省市区名称或手机号搜索」。",
+        "current_test_design_item_indexes": [
+          5
+        ]
+      },
+      {
+        "fact_id": "DOC288-P0010-P10-F13",
+        "fact_ref": "RF-002",
+        "scope_id": "EV-0023",
+        "assertion": "列表条目按序号排列，每条展示机构名称、机构类型标签、联系人姓名，以及右侧「已缴」与「合同」两行金额。",
+        "current_test_design_item_indexes": [
+          6
+        ]
+      },
+      {
+        "fact_id": "DOC288-P0010-P10-F14",
+        "fact_ref": "RF-003",
+        "scope_id": "EV-0023",
+        "assertion": "截图中二级分销机构条目（杰瑞机器人、鸥途教育）在联系人姓名下方展示紫色「关联一级」标签及关联的一级分销机构名称。",
+        "current_test_design_item_indexes": [
+          7
+        ]
+      },
+      {
+        "fact_id": "DOC288-P0010-P10-F15",
+        "fact_ref": "RF-004",
+        "scope_id": "EV-0023",
+        "assertion": "截图中一级分销机构条目与普通机构条目仅展示机构名称、联系人姓名与金额，不展示关联一级行。",
+        "current_test_design_item_indexes": [
+          8
+        ]
+      }
+    ],
+    "module_objective": "覆盖机构管理页面的筛选、搜索及列表条目展示规则。",
+    "additional_scope_ids": [],
+    "missing_test_design_items": [
+      {
+        "technique": "判定表",
+        "test_point": "机构列表筛选与搜索",
+        "coverage_intent": "验证据缴费状态筛选机构列表时可选未缴费、已缴费两种状态",
+        "test_design_item_index": 0
+      },
+      {
+        "technique": "判定表",
+        "test_point": "机构列表筛选与搜索",
+        "coverage_intent": "验证机构范围筛选项包含我的机构与全部两种选项",
+        "test_design_item_index": 1
+      },
+      {
+        "technique": "判定表",
+        "test_point": "机构列表筛选与搜索",
+        "coverage_intent": "验证机构类型筛选项包含普通机构、一级分销机构、二级分销机构三种选项",
+        "test_design_item_index": 2
+      },
+      {
+        "technique": "判定表",
+        "test_point": "机构列表筛选与搜索",
+        "coverage_intent": "验证同一筛选维度内「全部」与具体选项互斥，不能同时选中",
+        "test_design_item_index": 3
+      },
+      {
+        "technique": "判定表",
+        "test_point": "机构列表筛选与搜索",
+        "coverage_intent": "验证「查看筛选」弹窗含缴费状态、机构范围、机构类型三组复选框筛选项及底部「确定」按钮，且各筛选项可逐项勾选",
+        "test_design_item_index": 4
+      },
+      {
+        "technique": "判定表",
+        "test_point": "机构列表筛选与搜索",
+        "coverage_intent": "验证机构列表页顶部搜索框存在且占位提示为「请输入机构或省市区名称或手机号搜索」",
+        "test_design_item_index": 5
+      },
+      {
+        "technique": "场景法",
+        "test_point": "机构列表条目展示",
+        "coverage_intent": "验证列表条目按序号排列并展示机构名称、机构类型、联系人或销售、已缴金额与合同金额",
+        "test_design_item_index": 6
+      },
+      {
+        "technique": "场景法",
+        "test_point": "机构列表条目展示",
+        "coverage_intent": "验证二级分销机构条目在联系人（销售）下方以紫色「关联一级」标签加一级机构名称展示其关联一级机构",
+        "test_design_item_index": 7
+      },
+      {
+        "technique": "场景法",
+        "test_point": "机构列表条目展示",
+        "coverage_intent": "验证一级分销机构与普通机构条目不展示关联一级机构名称这一行",
+        "test_design_item_index": 8
+      }
+    ],
+    "scope_evidence": [
+      {
+        "scope_id": "EV-0001",
+        "page_number": 1,
+        "kind": "text",
+        "source_dependency_sha256": "3c166eefb82f82f4293b9a0efb14e1d59816731f52c96ea43a2fb4b1c9efa560",
+        "text": "机构管理|分销机构体系产品需求文档\n分销-已修改.html\n本次修订:\n1. 缴费类型入口精简为两类,移除「新增⻔店缴费」「城市/区域新增⻔店」「⻔店续费」「新版升级\n代理」入口;\n2. 机构列表中二级分销机构条目直接展示其关联的一级分销机构;\n3. 每个二级分销机构固定1个⻔店,一级分销机构详情不再展示⻔店数量;\n4. 「新建机构」⻚面改为专属的「新建一级分销机构」⻚面,新增「关联线索」「关联普通机构」字\n段。\n1.机构类型与层级关系"
+      },
+      {
+        "scope_id": "EV-0021",
+        "page_number": 10,
+        "kind": "text",
+        "source_dependency_sha256": "f3504d3f2fb5fa2d3642b76994c2108ac5368103cab5c24bc3da9ffd307274db",
+        "text": "• 筛选维度:缴费状态(未缴费/已缴费)、机构范围(我的机构/全部)、机构类型(普通机构/一\n级分销机构/二级分销机构)。\n• 同一筛选维度内,「全部」与具体选项互斥。\n• 列表展示机构名称、机构类型、销售或联系人、已缴金额与合同金额。\n• 【变更】机构列表⻚面:机构类型为二级分销机构时,列表条目在联系人(销售)下方额外展示其\n关联的一级分销机构名称(紫色「关联一级」标签+一级机构名);一级分销机构与普通机构条目\n不展示该行。"
+      },
+      {
+        "scope_id": "EV-0022",
+        "page_number": 10,
+        "kind": "image",
+        "source_dependency_sha256": "cc6159756b60d30c92629d4f684fccce53218f48c8fe0a299ddf598200b4efec"
+      },
+      {
+        "scope_id": "EV-0023",
+        "page_number": 10,
+        "kind": "image",
+        "source_dependency_sha256": "cb1f965ea3638528aa6b3daa66cae0828566785d015f3d50110f8a35d7118c82"
+      }
+    ]
+  },
+  "support_output": {
+    "decisions": [
+      {
+        "reason": "候选事实 DOC288-P0010-P10-F01 明确缴费状态是机构列表筛选维度之一，选项为未缴费与已缴费，正好覆盖该意图要求验证的两种状态。",
+        "fact_ids": [
+          "DOC288-P0010-P10-F01"
+        ],
+        "disposition": "supported",
+        "support_gaps": [],
+        "test_design_item_index": 0
+      },
+      {
+        "reason": "候选事实 DOC288-P0010-P10-F02 明确机构范围是机构列表筛选维度之一，选项为我的机构与全部，覆盖该意图要求验证的两种选项。",
+        "fact_ids": [
+          "DOC288-P0010-P10-F02"
+        ],
+        "disposition": "supported",
+        "support_gaps": [],
+        "test_design_item_index": 1
+      },
+      {
+        "reason": "候选事实 DOC288-P0010-P10-F03 明确机构类型是机构列表筛选维度之一，选项为普通机构、一级分销机构与二级分销机构，覆盖该意图要求验证的三种选项。",
+        "fact_ids": [
+          "DOC288-P0010-P10-F03"
+        ],
+        "disposition": "supported",
+        "support_gaps": [],
+        "test_design_item_index": 2
+      },
+      {
+        "reason": "DOC288-P0010-P10-F04 明确记录同一筛选维度内「全部」与具体选项互斥、不能同时选中，与覆盖意图逐字对应。",
+        "fact_ids": [
+          "DOC288-P0010-P10-F04"
+        ],
+        "disposition": "supported",
+        "support_gaps": [],
+        "test_design_item_index": 3
+      },
+      {
+        "reason": "F09 支持「查看筛选」弹窗含缴费状态、机构范围、机构类型三组筛选项及底部「确定」按钮；F10 支持三组筛选项均以复选框呈现且可逐项勾选，两者共同完整覆盖意图。",
+        "fact_ids": [
+          "DOC288-P0010-P10-F09",
+          "DOC288-P0010-P10-F10"
+        ],
+        "disposition": "supported",
+        "support_gaps": [],
+        "test_design_item_index": 4
+      },
+      {
+        "reason": "DOC288-P0010-P10-F12 明确机构列表页顶部提供搜索框，占位提示为「请输入机构或省市区名称或手机号搜索」，与覆盖意图逐字对应。",
+        "fact_ids": [
+          "DOC288-P0010-P10-F12"
+        ],
+        "disposition": "supported",
+        "support_gaps": [],
+        "test_design_item_index": 5
+      },
+      {
+        "reason": "覆盖意图要求列表条目按序号排列并展示机构名称、机构类型、联系人或销售、已缴与合同金额。F05 明确列表条目展示机构名称、机构类型、销售或联系人、已缴金额与合同金额；F13（截图观察）明确条目按序号排列，每条展示机构名称、机构类型标签、联系人姓名及右侧「已缴」「合同」两行金额。两者共同覆盖该意图的全部要求。",
+        "fact_ids": [
+          "DOC288-P0010-P10-F05",
+          "DOC288-P0010-P10-F13"
+        ],
+        "disposition": "supported",
+        "support_gaps": [],
+        "test_design_item_index": 6
+      },
+      {
+        "reason": "覆盖意图要求二级分销机构条目在联系人（销售）下方以紫色「关联一级」标签加一级机构名称展示关联一级机构。F06 明确二级分销机构条目在联系人（销售）下方额外展示关联一级分销机构名称；F07 明确该展示由紫色「关联一级」标签加一级机构名称组成。两者共同覆盖意图全部要求。",
+        "fact_ids": [
+          "DOC288-P0010-P10-F06",
+          "DOC288-P0010-P10-F07"
+        ],
+        "disposition": "supported",
+        "support_gaps": [],
+        "test_design_item_index": 7
+      },
+      {
+        "reason": "覆盖意图要求一级分销机构与普通机构条目不展示关联一级机构名称这一行。F08 明确一级分销机构与普通机构条目不在列表中展示关联一级机构名称这一行，与意图一致。",
+        "fact_ids": [
+          "DOC288-P0010-P10-F08"
+        ],
+        "disposition": "supported",
+        "support_gaps": [],
+        "test_design_item_index": 8
+      }
+    ],
+    "module_index": 5
+  },
+  "ownership_input": {
+    "ownership_protocol": "business_domain_ownership_v1",
+    "scope": {
+      "scope_id": "EV-0001",
+      "facts": [
+        {
+          "fact_id": "DOC288-P0001-F-288-1-04",
+          "assertion": "缴费类型入口精简为两类。",
+          "governed_by": [],
+          "value_policy": "exact",
+          "governed_values": []
+        },
+        {
+          "fact_id": "DOC288-P0001-F-288-1-05",
+          "assertion": "移除「新增门店缴费」「城市/区域新增门店」「门店续费」「新版升级代理」四个缴费入口。",
+          "governed_by": [],
+          "value_policy": "exact",
+          "governed_values": []
+        },
+        {
+          "fact_id": "DOC288-P0001-F-288-1-06",
+          "assertion": "机构列表中，二级分销机构条目直接展示其关联的一级分销机构。",
+          "governed_by": [],
+          "value_policy": "exact",
+          "governed_values": []
+        },
+        {
+          "fact_id": "DOC288-P0001-F-288-1-07",
+          "assertion": "每个二级分销机构固定1个门店。",
+          "governed_by": [],
+          "value_policy": "exact",
+          "governed_values": []
+        },
+        {
+          "fact_id": "DOC288-P0001-F-288-1-08",
+          "assertion": "一级分销机构详情不再展示门店数量。",
+          "governed_by": [],
+          "value_policy": "exact",
+          "governed_values": []
+        },
+        {
+          "fact_id": "DOC288-P0001-F-288-1-09",
+          "assertion": "「新建机构」页面改为专属的「新建一级分销机构」页面。",
+          "governed_by": [],
+          "value_policy": "exact",
+          "governed_values": []
+        },
+        {
+          "fact_id": "DOC288-P0001-F-288-1-10",
+          "assertion": "新建一级分销机构页面新增「关联线索」字段。",
+          "governed_by": [],
+          "value_policy": "exact",
+          "governed_values": []
+        },
+        {
+          "fact_id": "DOC288-P0001-F-288-1-11",
+          "assertion": "新建一级分销机构页面新增「关联普通机构」字段。",
+          "governed_by": [],
+          "value_policy": "exact",
+          "governed_values": []
+        }
+      ],
+      "source_dependency_sha256": "bb2d1655c53843fdc4039341f2c254408bc9a32a8afdbf93620e34a7f439a1a3"
+    },
+    "business_modules": [
+      {
+        "module_id": "MOD-0233aafae36f11a8349d",
+        "name": "机构门店新增与缴费",
+        "objective": "覆盖门店新增与缴费入口整合、缴费类型精简与缴费范围、二级分校合作方案新增及优惠券申请能力。",
+        "actors": [],
+        "lifecycle": null
+      },
+      {
+        "module_id": "MOD-3bd885e67d6cf5b83c55",
+        "name": "机构类型与分销层级管理",
+        "objective": "覆盖机构新建类型确定，普通/一级/二级分销机构的门店归属、层级位置与门店新增方式，以及层级隶属、门店归属基数与层级信息的展示规则。",
+        "actors": [
+          "机构",
+          "销售"
+        ],
+        "lifecycle": null
+      },
+      {
+        "module_id": "MOD-53d9f99716d8b42dab23",
+        "name": "学习卡价格设置",
+        "objective": "覆盖一级分销机构及销售代操作在名下机构门店设置学习卡价格、成本价自动计算并提交平台审核生效的完整链路。",
+        "actors": [
+          "一级分销机构",
+          "平台审核",
+          "销售"
+        ],
+        "lifecycle": "填写价格并提交审核 → 审核中 → 审核通过生效"
+      },
+      {
+        "module_id": "MOD-68722eb6c47c3c60949b",
+        "name": "机构信息与统计",
+        "objective": "覆盖机构信息与名下机构、门店信息按类型区分展示，以及消耗统计、机构&门店统计的维度与定时更新规则。",
+        "actors": [
+          "一级分销机构"
+        ],
+        "lifecycle": null
+      },
+      {
+        "module_id": "MOD-c04a07eaa8c39a049efb",
+        "name": "机构列表",
+        "objective": "覆盖机构管理页面的筛选、搜索及列表条目展示规则。",
+        "actors": [],
+        "lifecycle": null
+      },
+      {
+        "module_id": "MOD-c535f6c0d755b506d7f1",
+        "name": "一级分销机构创建与开通",
+        "objective": "覆盖新建一级分销机构页面字段与读取规则、普通机构详情与创建入口、创建开通规则及开通审批流程。",
+        "actors": [],
+        "lifecycle": "审批中 → 已通过/已拒绝"
+      }
+    ],
+    "user_decision_context": {}
+  },
+  "old_route_output": {
+    "scope_id": "EV-0001",
+    "assignments": [
+      {
+        "fact_id": "DOC288-P0001-F-288-1-04",
+        "module_routes": [
+          {
+            "relation": "primary",
+            "module_index": 2,
+            "test_design_item_indexes": [
+              6,
+              8
+            ]
+          }
+        ]
+      },
+      {
+        "fact_id": "DOC288-P0001-F-288-1-05",
+        "module_routes": [
+          {
+            "relation": "primary",
+            "module_index": 2,
+            "test_design_item_indexes": [
+              7,
+              11
+            ]
+          }
+        ]
+      },
+      {
+        "fact_id": "DOC288-P0001-F-288-1-06",
+        "module_routes": [
+          {
+            "relation": "primary",
+            "module_index": 5,
+            "test_design_item_indexes": [
+              7
+            ]
+          },
+          {
+            "relation": "shared",
+            "module_index": 0,
+            "test_design_item_indexes": [
+              10
+            ]
+          }
+        ]
+      },
+      {
+        "fact_id": "DOC288-P0001-F-288-1-07",
+        "module_routes": [
+          {
+            "relation": "primary",
+            "module_index": 0,
+            "test_design_item_indexes": [
+              11
+            ]
+          }
+        ]
+      },
+      {
+        "fact_id": "DOC288-P0001-F-288-1-08",
+        "module_routes": [
+          {
+            "relation": "primary",
+            "module_index": 0,
+            "test_design_item_indexes": [
+              12
+            ]
+          }
+        ]
+      },
+      {
+        "fact_id": "DOC288-P0001-F-288-1-09",
+        "module_routes": [
+          {
+            "relation": "primary",
+            "module_index": 1,
+            "test_design_item_indexes": [
+              0
+            ]
+          },
+          {
+            "relation": "shared",
+            "module_index": 0,
+            "test_design_item_indexes": [
+              8
+            ]
+          }
+        ]
+      },
+      {
+        "fact_id": "DOC288-P0001-F-288-1-10",
+        "module_routes": [
+          {
+            "relation": "primary",
+            "module_index": 1,
+            "test_design_item_indexes": [
+              1
+            ]
+          }
+        ]
+      },
+      {
+        "fact_id": "DOC288-P0001-F-288-1-11",
+        "module_routes": [
+          {
+            "relation": "primary",
+            "module_index": 1,
+            "test_design_item_indexes": [
+              2
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "mechanical_ownership_projection": {
+    "scope_id": "EV-0001",
+    "assignments": [
+      {
+        "fact_id": "DOC288-P0001-F-288-1-04",
+        "module_routes": [
+          {
+            "module_id": "MOD-0233aafae36f11a8349d",
+            "relation": "primary"
+          }
+        ]
+      },
+      {
+        "fact_id": "DOC288-P0001-F-288-1-05",
+        "module_routes": [
+          {
+            "module_id": "MOD-0233aafae36f11a8349d",
+            "relation": "primary"
+          }
+        ]
+      },
+      {
+        "fact_id": "DOC288-P0001-F-288-1-06",
+        "module_routes": [
+          {
+            "module_id": "MOD-c04a07eaa8c39a049efb",
+            "relation": "primary"
+          },
+          {
+            "module_id": "MOD-3bd885e67d6cf5b83c55",
+            "relation": "shared"
+          }
+        ]
+      },
+      {
+        "fact_id": "DOC288-P0001-F-288-1-07",
+        "module_routes": [
+          {
+            "module_id": "MOD-3bd885e67d6cf5b83c55",
+            "relation": "primary"
+          }
+        ]
+      },
+      {
+        "fact_id": "DOC288-P0001-F-288-1-08",
+        "module_routes": [
+          {
+            "module_id": "MOD-3bd885e67d6cf5b83c55",
+            "relation": "primary"
+          }
+        ]
+      },
+      {
+        "fact_id": "DOC288-P0001-F-288-1-09",
+        "module_routes": [
+          {
+            "module_id": "MOD-c535f6c0d755b506d7f1",
+            "relation": "primary"
+          },
+          {
+            "module_id": "MOD-3bd885e67d6cf5b83c55",
+            "relation": "shared"
+          }
+        ]
+      },
+      {
+        "fact_id": "DOC288-P0001-F-288-1-10",
+        "module_routes": [
+          {
+            "module_id": "MOD-c535f6c0d755b506d7f1",
+            "relation": "primary"
+          }
+        ]
+      },
+      {
+        "fact_id": "DOC288-P0001-F-288-1-11",
+        "module_routes": [
+          {
+            "module_id": "MOD-c535f6c0d755b506d7f1",
+            "relation": "primary"
+          }
+        ]
+      }
+    ]
+  },
+  "limit": "旧路由仅映射标识测试序列化；不是新归属协议的模型验收，不可导入在线checkpoint。"
+}

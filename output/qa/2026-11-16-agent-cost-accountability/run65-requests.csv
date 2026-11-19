@@ -1,0 +1,9 @@
+﻿ordinal,node_id,node_request_sequence,phase,phase_zh,group,status,input_tokens,output_tokens,total_tokens,elapsed_seconds,sdk_context_bytes,reserved_input_tokens,reserved_output_tokens,reasoning_effort,reasoning_tokens,cached_input_tokens,sdk_reasoning_items
+1,420,1,initial_read_tool,首次决定读取全文,read,response_received,6330,30,6360,3.085,26259,34451,10000,low,,,0
+2,420,2,first_plan_rejected,首次提交覆盖计划被拒,rejected_plan,response_received,14308,2112,16420,39.967,52538,60730,10000,low,,,0
+3,420,3,upstream_504_unknown,校验后请求收到上游504，内容/用量未知,unknown,ended_without_model_response,,,,120.069,68819,77011,10000,low,,,
+4,421,1,resume_read_tool,恢复后决定重新读取全文,read,response_received,8641,30,8671,2.036,34445,42637,10000,low,,,0
+5,421,2,resumed_plan_rejected_1,恢复后第1次覆盖计划被拒,rejected_plan,response_received,16613,1937,18550,37.463,60705,68897,10000,low,,,0
+6,421,3,resumed_plan_rejected_2,恢复后第2次覆盖计划被拒,rejected_plan,response_received,20760,1842,22602,35.076,75617,83809,10000,low,,,0
+7,421,4,targeted_source_read,决定定向读取EV-0007,read,response_received,24717,33,24750,2.365,89871,98063,10000,low,,3328,0
+8,421,5,accepted_plan,最终保存20项覆盖目标,accepted_plan,response_received,25501,1786,27287,34.19,92810,101002,10000,low,,,0

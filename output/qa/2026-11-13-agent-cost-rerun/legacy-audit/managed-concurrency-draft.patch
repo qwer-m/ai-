@@ -1,0 +1,592 @@
+--- a/backend/modules/agent_platform/retry_policy.py
++++ b/backend/modules/agent_platform/retry_policy.py
+@@ -14,6 +14,71 @@
+ MODEL_ROUTE_HEALTH_FAILURE_KINDS = frozenset(
+     {*CONCURRENCY_PRESSURE_FAILURE_KINDS, "empty_output", "json_syntax", "output_degeneration"}
+ )
++
++
++@dataclass
++class AdaptiveConcurrency:
++    """DAG 与受管会话共享压力控制；只决定准入上限，不执行重试。"""
++
++    max_concurrency: int
++    min_concurrency: int
++    pressure_threshold: int
++    recovery_successes: int
++    effective_concurrency: int
++    pressure_failures: int = 0
++    successful_since_adjustment: int = 0
++
++    @classmethod
++    def restore(cls, *, max_concurrency: int, min_concurrency: int,
++                pressure_threshold: int, recovery_successes: int,
++                checkpoint: dict[str, Any] | None = None) -> "AdaptiveConcurrency":
++        if any(type(value) is not int or value < 1 for value in
++               (max_concurrency, min_concurrency, pressure_threshold, recovery_successes)):
++            raise ValueError("并发控制参数必须是正整数")
++        floor = min(max_concurrency, min_concurrency)
++        saved = checkpoint or {}
++        effective = saved.get("effective_concurrency", max_concurrency)
++        pressure = saved.get("pressure_failures", 0)
++        successes = saved.get("successful_since_adjustment", 0)
++        if any(type(value) is not int or value < 0 for value in (effective, pressure, successes)):
++            raise ValueError("并发控制检查点必须是非负整数")
++        return cls(max_concurrency, floor, pressure_threshold, recovery_successes,
++                   min(max_concurrency, max(floor, effective)), pressure, successes)
++
++    def snapshot(self) -> dict[str, int]:
++        return {"max_concurrency": self.max_concurrency,
++                "min_concurrency": self.min_concurrency,
++                "effective_concurrency": self.effective_concurrency,
++                "pressure_failures": self.pressure_failures,
++                "successful_since_adjustment": self.successful_since_adjustment}
++
++    def _adjust(self, target: int, reason: str, failure_kind: str = "") -> dict[str, Any] | None:
++        target = min(self.max_concurrency, max(self.min_concurrency, target))
++        if target == self.effective_concurrency:
++            return None
++        previous = self.effective_concurrency
++        self.effective_concurrency = target
++        self.pressure_failures = self.successful_since_adjustment = 0
++        return {"from": previous, "to": target, "reason": reason, "failure_kind": failure_kind}
++
++    def record_success(self) -> dict[str, Any] | None:
++        self.successful_since_adjustment += 1
++        if self.successful_since_adjustment >= self.recovery_successes:
++            # 一个成功不能抹掉窗口内限流；稳定成功窗口结束才解除压力。
++            self.pressure_failures = 0
++            if self.effective_concurrency < self.max_concurrency:
++                return self._adjust(self.effective_concurrency + 1, "success_recovery")
++            self.successful_since_adjustment = 0
++        return None
++
++    def record_failure(self, failure_kind: str | None, *, retryable: bool = True) -> dict[str, Any] | None:
++        if not retryable or failure_kind not in CONCURRENCY_PRESSURE_FAILURE_KINDS:
++            return None
++        self.successful_since_adjustment = 0
++        self.pressure_failures += 1
++        if self.pressure_failures >= self.pressure_threshold:
++            return self._adjust(self.effective_concurrency - 1, "upstream_pressure", failure_kind)
++        return None
+ 
+ 
+ def restorable_sdk_state(node_run: Any, *, destination_run_id: int | None = None) -> dict[str, Any]:
+--- a/backend/modules/agent_platform/runtime.py
++++ b/backend/modules/agent_platform/runtime.py
+@@ -57,6 +57,7 @@
+ from .retry_policy import (
+     CONCURRENCY_PRESSURE_FAILURE_KINDS as _CONCURRENCY_PRESSURE_FAILURE_KINDS,
+     MODEL_ROUTE_HEALTH_FAILURE_KINDS as _MODEL_ROUTE_HEALTH_FAILURE_KINDS,
++    AdaptiveConcurrency,
+     RetryAttemptState,
+     RetryDecision,
+     restorable_sdk_state,
+@@ -1933,23 +1934,18 @@
+         max(1, int(settings.AGENT_MAP_MIN_CONCURRENCY)),
+     )
+     previous_parallelism = dict(previous_state.get("parallelism") or {})
+-    effective_concurrency = min(
+-        max_concurrency,
+-        max(
+-            min_concurrency,
+-            int(previous_parallelism.get("effective_concurrency") or max_concurrency),
+-        ),
+-    )
++    concurrency = AdaptiveConcurrency.restore(
++        max_concurrency=max_concurrency, min_concurrency=min_concurrency,
++        pressure_threshold=int(settings.AGENT_MAP_CONCURRENCY_PRESSURE_FAILURES),
++        recovery_successes=int(settings.AGENT_MAP_CONCURRENCY_RECOVERY_SUCCESSES),
++        checkpoint=previous_parallelism,
++    )
++    effective_concurrency = concurrency.effective_concurrency
+     concurrency_adjustments = [
+         dict(item)
+         for item in list(previous_state.get("concurrency_adjustments") or [])[-20:]
+         if isinstance(item, dict)
+     ]
+-    successful_since_concurrency_adjustment = 0
+-    pressure_failures_since_concurrency_adjustment = max(
+-        0,
+-        int(previous_parallelism.get("pressure_failures") or 0),
+-    )
+     pending: dict[
+         asyncio.Task[Any],
+         tuple[int, int, dict[str, int], str, dict[str, Any]],
+@@ -2050,7 +2046,8 @@
+                     "max_concurrency": max_concurrency,
+                     "min_concurrency": min_concurrency,
+                     "effective_concurrency": effective_concurrency,
+-                    "pressure_failures": pressure_failures_since_concurrency_adjustment,
++                    "pressure_failures": concurrency.pressure_failures,
++                    "successful_since_adjustment": concurrency.successful_since_adjustment,
+                     "active_instances": len(pending),
+                     "retry_waiting_instances": sum(
+                         item.get("status") == "retrying" for item in states
+@@ -2091,37 +2088,15 @@
+         repo.db.add(run)
+         repo.db.commit()
+ 
+-    def adjust_concurrency(*, target: int, reason: str, failure_kind: str = "") -> None:
+-        """记录实际并发变化，使重试调度与诊断共享同一事实。"""
+-
+-        nonlocal effective_concurrency, successful_since_concurrency_adjustment
+-        nonlocal pressure_failures_since_concurrency_adjustment
+-        normalized_target = min(max_concurrency, max(min_concurrency, int(target)))
+-        if normalized_target == effective_concurrency:
+-            return
+-        previous_concurrency = effective_concurrency
+-        effective_concurrency = normalized_target
+-        successful_since_concurrency_adjustment = 0
+-        pressure_failures_since_concurrency_adjustment = 0
+-        adjustment = {
+-            "from": previous_concurrency,
+-            "to": effective_concurrency,
+-            "reason": reason,
+-            "failure_kind": failure_kind,
+-            "completed_instances": len(completed_by_index),
+-        }
++    def publish_concurrency_adjustment(adjustment: dict[str, Any]) -> None:
++        """共享纯策略决定上限，原 Runtime 仍负责诊断、调度和持久化。"""
++        nonlocal effective_concurrency
++        effective_concurrency = concurrency.effective_concurrency
++        adjustment = {**adjustment, "completed_instances": len(completed_by_index)}
+         concurrency_adjustments.append(adjustment)
+         del concurrency_adjustments[:-20]
+-        _event(
+-            repo,
+-            run,
+-            "map_concurrency_adjusted",
+-            {
+-                "node_key": node.node_key,
+-                **adjustment,
+-            },
+-            node_run=node_run,
+-        )
++        _event(repo, run, "map_concurrency_adjusted",
++               {"node_key": node.node_key, **adjustment}, node_run=node_run)
+ 
+     async def cancel_pending_instances(*, reason: str) -> None:
+         """取消正在执行和等待重试的实例，并同步持久化实例终态。"""
+@@ -2474,22 +2449,9 @@
+                         },
+                         node_run=node_run,
+                     )
+-                    successful_since_concurrency_adjustment += 1
+-                    pressure_failures_since_concurrency_adjustment = max(
+-                        0,
+-                        pressure_failures_since_concurrency_adjustment - 1,
+-                    )
+-                    recovery_successes = int(
+-                        settings.AGENT_MAP_CONCURRENCY_RECOVERY_SUCCESSES
+-                    )
+-                    if (
+-                        effective_concurrency < max_concurrency
+-                        and successful_since_concurrency_adjustment >= recovery_successes
+-                    ):
+-                        adjust_concurrency(
+-                            target=effective_concurrency + 1,
+-                            reason="success_recovery",
+-                        )
++                    adjustment = concurrency.record_success()
++                    if adjustment is not None:
++                        publish_concurrency_adjustment(adjustment)
+                 except Exception as exc:
+                     retry_state = retry_states_by_index[index]
+                     decision = _agent_retry_decision(
+@@ -2506,19 +2468,9 @@
+                         ):
+                             fallback_route_by_index[index] = transient_fallback_route
+                     if retryable and _is_concurrency_pressure_failure(failure_kind):
+-                        pressure_failures_since_concurrency_adjustment += 1
+-                        pressure_threshold = int(
+-                            settings.AGENT_MAP_CONCURRENCY_PRESSURE_FAILURES
+-                        )
+-                        if (
+-                            pressure_failures_since_concurrency_adjustment
+-                            >= pressure_threshold
+-                        ):
+-                            adjust_concurrency(
+-                                target=effective_concurrency - 1,
+-                                reason="upstream_pressure",
+-                                failure_kind=failure_kind,
+-                            )
++                        adjustment = concurrency.record_failure(failure_kind, retryable=retryable)
++                        if adjustment is not None:
++                            publish_concurrency_adjustment(adjustment)
+                     error_diagnostic = _agent_error_diagnostic(exc)
+                     failed_tool_calls = _failed_agent_tool_calls(exc)
+                     attempt_limit = decision.attempt_limit
+--- a/backend/modules/agent_platform/action_journal.py
++++ b/backend/modules/agent_platform/action_journal.py
+@@ -354,6 +354,47 @@
+             self._event(node, "agent_action_failed" if error is not None else "agent_action_completed", record)
+             return self._receipt(self._unpack_receipt(node, record))
+ 
++    def managed_parallelism(self, *, scope_key, scope):
++        """读取执行控制头，不展开领域状态或历史专业产物。"""
++        if scope_key != action_state_hash(scope):
++            raise ActionStateConflict("受管并发作用域摘要不一致")
++        with self._transaction() as node:
++            checkpoint = self._checkpoint(node)
++            if checkpoint is None:
++                raise ActionStateConflict("受管并发控制缺少检查点")
++            records = checkpoint.get("managed_parallelism", {})
++            if not isinstance(records, dict):
++                raise ActionStateConflict("受管并发控制目录无效")
++            record = records.get(scope_key)
++            if record is None:
++                return None
++            if not isinstance(record, dict) or record.get("scope") != scope or not isinstance(record.get("policy"), dict):
++                raise ActionStateConflict("受管并发控制不属于当前真实模型作用域")
++            return deepcopy(record["policy"])
++
++    def save_managed_parallelism(self, *, scope_key, scope, policy, adjustment=None):
++        """执行权校验与分支沿用现有事务；不改领域哈希或已用预算。"""
++        if scope_key != action_state_hash(scope) or not isinstance(policy, dict):
++            raise ActionStateConflict("受管并发控制的作用域或快照无效")
++        with self._transaction() as node:
++            checkpoint = self._checkpoint(node, fork=True)
++            if checkpoint is None:
++                raise ActionStateConflict("受管并发控制缺少检查点")
++            records = deepcopy(checkpoint.get("managed_parallelism", {}))
++            existing = records.get(scope_key)
++            if existing is not None and existing.get("scope") != scope:
++                raise ActionStateConflict("同一并发作用域不能绑定不同模型")
++            record = {"scope": deepcopy(scope), "policy": deepcopy(policy)}
++            if existing == record:
++                return
++            records[scope_key] = record
++            checkpoint["managed_parallelism"] = records
++            self._save(node, checkpoint)
++            if adjustment is not None:
++                self.repo.append_event(run_id=self.run_id, node_run_id=self.node_run_id,
++                    event_type="managed_concurrency_adjusted",
++                    payload={"scope_key": scope_key, "scope": deepcopy(scope), **deepcopy(adjustment)})
++
+     def save_budget(self, snapshot):
+         if not isinstance(snapshot, dict):
+             raise TypeError("预算快照必须是对象")
+--- a/backend/modules/agent_platform/sdk_adapter.py
++++ b/backend/modules/agent_platform/sdk_adapter.py
+@@ -9,6 +9,7 @@
+ import re
+ from collections.abc import Callable
+ from contextvars import ContextVar
++from contextlib import asynccontextmanager
+ from copy import deepcopy
+ from dataclasses import dataclass, field, replace
+ from typing import Annotated, Any, Literal
+@@ -38,6 +39,7 @@
+ from core.ai.ai_client import get_client_for_user
+ from core.ai.providers.openai_compatible_provider import OpenAICompatibleProvider
+ from core.ai.usage import normalized_usage
++from core.settings.config import settings
+ from core.db.model_defs import AgentDefinition, AgentToolDefinition, KnowledgeDocument
+ from modules.knowledge_base_components.document.document_asset_service import (
+     document_page_image_details,
+@@ -45,6 +47,7 @@
+     load_document_manifest,
+ )
+ from .registry import ToolExecutionContext, tool_registry
++from .retry_policy import AdaptiveConcurrency, model_transport_failure_kind
+ from .contracts import AgentMapConfig, WorkflowNode
+ from .definition_repository import AgentDefinitionRepository
+ from .autonomous_tools import AutonomousToolLoop
+@@ -2097,6 +2100,53 @@
+     return output
+ 
+ 
++class _ManagedSessionConcurrency:
++    """仅对新的受管专家会话限流；嵌套咨询与回执重放不重复占许可。"""
++
++    def __init__(self, *, policy: AdaptiveConcurrency, on_change: Callable) -> None:
++        self.policy = policy
++        self._on_change = on_change
++        self._condition = asyncio.Condition()
++        self._active = 0
++
++    @asynccontextmanager
++    async def session(self):
++        async with self._condition:
++            await self._condition.wait_for(lambda: self._active < self.policy.effective_concurrency)
++            self._active += 1
++        try:
++            yield
++        except Exception as error:
++            kind = model_transport_failure_kind(error)
++            if kind is not None:
++                async with self._condition:
++                    adjustment = self.policy.record_failure(kind)
++                    self._on_change(self.policy.snapshot(), adjustment)
++            raise
++        else:
++            async with self._condition:
++                adjustment = self.policy.record_success()
++                self._on_change(self.policy.snapshot(), adjustment)
++        finally:
++            async with self._condition:
++                self._active -= 1
++                self._condition.notify_all()
++
++
++def _managed_session_scope(client: Any, definition: AgentDefinition) -> dict[str, str]:
++    """用真实模型与 provider 指纹关联压力，不按 Agent 名称或路由别名建隔离副本。"""
++    provider, model_name, _ = _resolved_agent_model(client, definition)
++    provider_identity = getattr(client, "_provider_cache_identity", None)
++    if not callable(provider_identity):
++        raise ValueError("受管会话并发作用域缺少真实 provider 指纹")
++    provider_hash = str(provider_identity(provider))
++    if not provider_hash:
++        raise ValueError("受管会话并发作用域的 provider 指纹为空")
++    return {"provider_hash": provider_hash, "model": model_name,
++            "provider_class": f"{type(provider).__module__}.{type(provider).__qualname__}",
++            "wire_api": str(getattr(provider, "wire_api", "") or "")}
++
++
+ async def run_agent_async(
+     *,
+     db: Any,
+@@ -2225,7 +2275,8 @@
+         managed_concurrency = runtime_config.get("managed_agent_max_concurrency", 1)
+         if type(managed_concurrency) is not int or not 1 <= managed_concurrency <= 16:
+             raise ValueError("托管专业 Agent 的并发数必须是 1 到 16 的整数")
+-        execution_context.agent_concurrency = 1 if execution_context.stop_on_failure else managed_concurrency
++        execution_context.agent_concurrency = (1 if execution_context.stop_on_failure
++            else min(managed_concurrency, int(settings.AGENT_MAP_MAX_CONCURRENCY)))
+         if len(set(managed_keys)) != len(managed_keys) or agent_definition.agent_key in managed_keys:
+             raise ValueError("持久自主节点的专业能力不能重复或引用自身")
+         definitions = AgentDefinitionRepository(db)
+@@ -2261,6 +2312,26 @@
+                         nested, definitions.list_agent_tools(nested.id, project_id=execution_context.project_id),
+                     ))
+         allowed_agents = frozenset(managed_keys)
++        session_gates: dict[str, _ManagedSessionConcurrency] = {}
++
++        def managed_session_gate(child):
++            from .action_journal import action_state_hash
++
++            scope = _managed_session_scope(client, child)
++            scope_key = action_state_hash(scope)
++            if scope_key not in session_gates:
++                policy = AdaptiveConcurrency.restore(
++                    max_concurrency=execution_context.agent_concurrency,
++                    min_concurrency=min(execution_context.agent_concurrency, int(settings.AGENT_MAP_MIN_CONCURRENCY)),
++                    pressure_threshold=int(settings.AGENT_MAP_CONCURRENCY_PRESSURE_FAILURES),
++                    recovery_successes=int(settings.AGENT_MAP_CONCURRENCY_RECOVERY_SUCCESSES),
++                    checkpoint=journal.managed_parallelism(scope_key=scope_key, scope=scope),
++                )
++                def persist(snapshot, adjustment):
++                    journal.save_managed_parallelism(scope_key=scope_key, scope=scope,
++                                                    policy=snapshot, adjustment=adjustment)
++                session_gates[scope_key] = _ManagedSessionConcurrency(policy=policy, on_change=persist)
++            return session_gates[scope_key]
+ 
+         async def invoke_agent(
+             *, agent_key: str, input_payload: dict[str, Any], item_postprocessor: str | None = None,
+@@ -2335,25 +2406,27 @@
+                     definition=child, raw_item=input_payload,
+                 )
+                 call_summary["input_projection"] = projection_diagnostics
+-                child_result = await run_agent_async(
+-                    db=db, agent_definition=child, tool_definitions=child_tools,
+-                    execution_context=child_context, input_payload=child_model_input,
+-                    request_timeout_seconds=float(child_config.get("request_timeout_seconds") or 180),
+-                    disable_server_output_schema=bool(child_config.get("disable_server_output_schema")),
+-                    skip_output_postprocessor=True, output_contract=contract, retry_feedback=child_feedback,
+-                    request_budget=request_budget, shared_budget_hooks=budget_hooks, model_client=client,
+-                    sdk_client_pool=sdk_client_pool,
+-                    request_diagnostics=request_diagnostics,
+-                    require_validated_submission=True,
+-                    captured_definitions=definition_snapshots,
+-                )
+-                output = (
+-                    child_result.validated_output if child_result.validated_output is not None
+-                    else contract.validate(child, child_context, child_result.output)
+-                )
+-                journal.save_validated_agent_call(
+-                    identity=receipt_identity, raw_output=child_result.output, output=output,
+-                )
++                # 只准入新会话；上方回执命中已返回，嵌套咨询不重复取得本许可。
++                async with managed_session_gate(child).session():
++                    child_result = await run_agent_async(
++                        db=db, agent_definition=child, tool_definitions=child_tools,
++                        execution_context=child_context, input_payload=child_model_input,
++                        request_timeout_seconds=float(child_config.get("request_timeout_seconds") or 180),
++                        disable_server_output_schema=bool(child_config.get("disable_server_output_schema")),
++                        skip_output_postprocessor=True, output_contract=contract, retry_feedback=child_feedback,
++                        request_budget=request_budget, shared_budget_hooks=budget_hooks, model_client=client,
++                        sdk_client_pool=sdk_client_pool,
++                        request_diagnostics=request_diagnostics,
++                        require_validated_submission=True,
++                        captured_definitions=definition_snapshots,
++                    )
++                    output = (
++                        child_result.validated_output if child_result.validated_output is not None
++                        else contract.validate(child, child_context, child_result.output)
++                    )
++                    journal.save_validated_agent_call(
++                        identity=receipt_identity, raw_output=child_result.output, output=output,
++                    )
+             except Exception as error:
+                 if autonomous_loop.feedback_for_error(error) is not None:
+                     error.agent_input_identity = identity
+--- /dev/null
++++ b/backend/tests/agent_platform/test_managed_concurrency_real_data.py
+@@ -0,0 +1,156 @@
++"""真实 Run60 限流与 Run59 成功回执驱动并发策略，不调用或替代模型。"""
++
++import asyncio
++import gzip
++import json
++from pathlib import Path
++
++import pytest
++
++from modules.agent_platform.action_journal import action_state_hash
++from modules.agent_platform.retry_policy import AdaptiveConcurrency
++from modules.agent_platform.sdk_adapter import _ManagedSessionConcurrency
++
++
++@pytest.fixture(scope="module")
++def real():
++    path = Path(__file__).with_name("fixtures") / "run60_concurrency_signals_real.json.gz"
++    with gzip.open(path, "rt", encoding="utf-8") as stream:
++        value = json.load(stream)
++    expected = value.pop("data_sha256")
++    assert action_state_hash(value) == expected
++    assert value["provenance"]["failed_run_id"] == 60
++    assert value["provenance"]["successful_run_id"] == 59
++    return value
++
++
++def policy(checkpoint=None, *, strict=False):
++    return AdaptiveConcurrency.restore(max_concurrency=1 if strict else 6,
++        min_concurrency=1 if strict else 2, pressure_threshold=2,
++        recovery_successes=6, checkpoint=checkpoint)
++
++
++def test_actual_rate_limit_signals_lower_same_model_scope_across_actions(real):
++    routes = {}
++    changes = []
++    for signal in real["rate_limit_signals"]:
++        current = routes.setdefault(signal["scope_key"], policy())
++        adjustment = current.record_failure(signal["failure_kind"])
++        if adjustment:
++            changes.append({"node_id": signal["node_id"], "sequence": signal["sequence"], **adjustment})
++    assert len(real["rate_limit_signals"]) == 5
++    assert sum(item["reason"] == "upstream_pressure" for item in changes) == 2
++    assert all(item["from"] == 6 and item["to"] == 5 for item in changes)
++    assert len(routes) == 2
++    assert all(current.effective_concurrency == 5 for current in routes.values())
++
++
++def test_json_restoration_preserves_actual_pressure_across_each_event(real):
++    uninterrupted = policy()
++    restored = policy()
++    for signal in real["rate_limit_signals"]:
++        assert restored.record_failure(signal["failure_kind"]) == uninterrupted.record_failure(signal["failure_kind"])
++        restored = policy(json.loads(json.dumps(restored.snapshot())))
++        assert restored.snapshot() == uninterrupted.snapshot()
++
++
++def test_actual_interleaved_successes_do_not_erase_repeat_rate_limits(real):
++    routes = {}
++    adjustments = []
++    for signal in real["interleaved_session_signals"]:
++        current = routes.setdefault(signal["scope_key"], policy())
++        adjustment = current.record_success() if signal["status"] == "validated" else current.record_failure(signal["failure_kind"])
++        if adjustment:
++            adjustments.append({"node_id": signal["node_id"], "source_sequence": signal["source_sequence"], **adjustment})
++    down = [item for item in adjustments if item["reason"] == "upstream_pressure"]
++    assert down == [{"node_id": 405, "source_sequence": 18, "from": 6, "to": 5,
++                     "reason": "upstream_pressure", "failure_kind": "rate_limit"}]
++    assert any(item["reason"] == "success_recovery" and item["from"] == 5 and item["to"] == 6 for item in adjustments)
++
++
++def test_real_interleaved_control_survives_json_storage_at_each_step(real):
++    uninterrupted = {}
++    restored = {}
++    for signal in real["interleaved_session_signals"]:
++        key = signal["scope_key"]
++        left = uninterrupted.setdefault(key, policy())
++        right = restored.setdefault(key, policy())
++        if signal["status"] == "validated":
++            assert left.record_success() == right.record_success()
++        else:
++            assert left.record_failure(signal["failure_kind"]) == right.record_failure(signal["failure_kind"])
++        restored[key] = policy(json.loads(json.dumps(right.snapshot())))
++        assert restored[key].snapshot() == left.snapshot()
++
++
++def test_real_successes_without_pressure_keep_original_configured_concurrency(real):
++    current = policy()
++    assert len(real["validated_success_signals"]) > 6
++    for signal in real["validated_success_signals"]:
++        assert signal["model_requests"] >= 1
++        assert current.record_success() is None
++        assert current.effective_concurrency == 6
++
++
++def test_real_successful_sessions_restore_one_level_after_actual_pressure(real):
++    current = policy()
++    for signal in real["rate_limit_signals"][:2]:
++        current.record_failure(signal["failure_kind"])
++    assert current.effective_concurrency == 5
++    for signal in real["validated_success_signals"][:5]:
++        assert current.record_success() is None
++    adjustment = current.record_success()
++    assert adjustment == {"from": 5, "to": 6, "reason": "success_recovery", "failure_kind": ""}
++
++
++def test_strict_execution_keeps_one_permit_for_all_actual_failure_signals(real):
++    current = policy(strict=True)
++    for signal in real["rate_limit_signals"]:
++        assert current.record_failure(signal["failure_kind"]) is None
++        assert current.effective_concurrency == 1
++
++
++def test_cancelled_unknown_requests_are_not_concurrency_pressure(real):
++    current = policy()
++    before = current.snapshot()
++    assert len(real["cancelled_unknown_signals"]) == 4
++    for signal in real["cancelled_unknown_signals"]:
++        assert signal["error_type"] == "CancelledError"
++        assert current.record_failure(None) is None
++    assert current.snapshot() == before
++
++
++def test_gate_bounds_new_sessions_using_replayed_actual_pressure_policy(real):
++    async def exercise():
++        current = policy()
++        for signal in real["rate_limit_signals"][:2]:
++            current.record_failure(signal["failure_kind"])
++        assert current.effective_concurrency == 5
++        changes = []
++        gate = _ManagedSessionConcurrency(policy=current, on_change=lambda snapshot, adjustment: changes.append((snapshot, adjustment)))
++        release = asyncio.Event()
++        all_admitted = asyncio.Event()
++        active = peak = 0
++        seen = []
++
++        async def session(signal):
++            nonlocal active, peak
++            async with gate.session():
++                active += 1
++                peak = max(peak, active)
++                seen.append(signal["input_hash"])
++                if len(seen) == 5:
++                    all_admitted.set()
++                await release.wait()
++                active -= 1
++
++        tasks = [asyncio.create_task(session(signal)) for signal in real["validated_success_signals"][:6]]
++        await asyncio.wait_for(all_admitted.wait(), timeout=2)
++        await asyncio.sleep(0)
++        assert len(seen) == 5 and peak == 5
++        release.set()
++        await asyncio.wait_for(asyncio.gather(*tasks), timeout=2)
++        assert len(seen) == 6 and peak == 5 and gate._active == 0
++        assert len(changes) == 6
++
++    asyncio.run(exercise())

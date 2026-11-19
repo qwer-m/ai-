@@ -1,0 +1,24 @@
+--- a/backend/modules/agent_platform/test_generation_agent.py
++++ b/backend/modules/agent_platform/test_generation_agent.py
+@@ -354,7 +354,8 @@
+             pending_draft_indexes = sorted({index for entry in plan["pending_draft_revisions"]
+                                             for index in entry["planning_batch_indexes"]})
+             affected_draft_indexes = sorted(set(plan["pending_draft_indexes"]) | {
+-                index for entry in [*plan["route_gaps"], *plan["unrouted_modules"]]
++                index for entry in [*[entry for entry in plan["route_gaps"] if entry["review"] is not None],
++                                    *plan["unrouted_modules"]]
+                 for index in entry["planning_batch_indexes"]})
+             affected_fact_ids = {identity for problem in _current_problems(state)
+                                  if problem["problem_id"] in structural_problem_ids for identity in problem["fact_ids"]}
+--- a/backend/modules/agent_platform/test_generation_planning_agent.py
++++ b/backend/modules/agent_platform/test_generation_planning_agent.py
+@@ -391,6 +391,9 @@
+     selected = []
+     feedback = _route_feedback(state) if state["plan"] is not None else _pending_draft_revisions(state)
+     for item in feedback:
++        # 尚未审查只表示待复核，不能给已建立的主题发放改写许可。
++        if item["review"] is None:
++            continue
+         designs = [design for design in item["missing_test_design_items"] if index in design["planning_batch_indexes"]]
+         if not designs:
+             continue

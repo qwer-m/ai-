@@ -1,0 +1,279 @@
+--- a/backend/modules/agent_platform/sdk_adapter.py
++++ b/backend/modules/agent_platform/sdk_adapter.py
+@@ -2147,6 +2147,16 @@
+             "wire_api": str(getattr(provider, "wire_api", "") or "")}
+ 
+ 
++def _attach_execution_observations(error: BaseException, *, model_requests,
++                                   tool_calls, tool_observations=None) -> None:
++    """暂停与普通异常共享真实观测附件，不分类失败或结算预算。"""
++    error.tool_calls = deepcopy(tool_calls)
++    error.diagnostic = {**dict(getattr(error, "diagnostic", None) or {}),
++                        "model_requests": deepcopy(model_requests),
++                        **({"tool_observations": deepcopy(tool_observations)}
++                           if tool_observations is not None else {})}
++
++
+ async def run_agent_async(
+     *,
+     db: Any,
+@@ -2629,8 +2639,13 @@
+         )
+     except BaseException as exc:
+         from .conflict_confirmation import ConflictConfirmationRequired
+-        if not isinstance(exc, ConflictConfirmationRequired):
+-            execution_context.record_failure(exc)
++        if isinstance(exc, ConflictConfirmationRequired):
++            # 人工暂停是 BaseException 控制流，必须在通用早退前保留本阶段观测。
++            _attach_execution_observations(exc, model_requests=request_diagnostics.requests,
++                tool_calls=execution_context.tool_calls[tool_call_start:],
++                tool_observations=autonomous_loop.events if autonomous_loop is not None else None)
++            raise
++        execution_context.record_failure(exc)
+         if budget_hooks is not None:
+             # 请求已确定结束但未收到用量时保留全部预留，状态不能继续伪装成正在等待。
+             budget_hooks.interrupt_requests(execution_context=execution_context)
+@@ -2650,12 +2665,10 @@
+         }
+         if autonomous_loop is not None:
+             # 预算耗尽和平台异常也必须保留此前的真实行动，不能只记录成功轮次。
+-            exc.tool_calls = deepcopy(execution_context.tool_calls[tool_call_start:])
+-            exc.diagnostic = {
+-                **dict(getattr(exc, "diagnostic", None) or {}),
+-                "tool_observations": autonomous_loop.events,
+-                "budget_usage": budget_hooks.snapshot() if budget_hooks is not None else {},
+-            }
++            _attach_execution_observations(exc, model_requests=request_diagnostics.requests,
++                tool_calls=execution_context.tool_calls[tool_call_start:],
++                tool_observations=autonomous_loop.events)
++            exc.diagnostic["budget_usage"] = budget_hooks.snapshot() if budget_hooks is not None else {}
+         if exc is not original_error:
+             raise exc from None
+         raise
+--- a/backend/modules/agent_platform/runtime.py
++++ b/backend/modules/agent_platform/runtime.py
+@@ -1218,7 +1218,7 @@
+     )
+ 
+ 
+-def _exception_chain(exc: Exception) -> tuple[BaseException, ...]:
++def _exception_chain(exc: BaseException) -> tuple[BaseException, ...]:
+     """返回异常及其 cause/context，识别 SDK 对业务异常的外层包装。"""
+ 
+     chain: list[BaseException] = []
+@@ -1242,7 +1242,7 @@
+     )
+ 
+ 
+-def _agent_error_diagnostic(exc: Exception) -> dict[str, Any] | None:
++def _agent_error_diagnostic(exc: BaseException) -> dict[str, Any] | None:
+     """提取异常提供的限长结构化诊断信息。"""
+ 
+     diagnostic = None
+@@ -1257,7 +1257,7 @@
+     return diagnostic
+ 
+ 
+-def _failed_agent_tool_calls(exc: Exception) -> list[dict[str, Any]]:
++def _failed_agent_tool_calls(exc: BaseException) -> list[dict[str, Any]]:
+     """失败候选只写入实例状态，事件保留摘要，避免重复存储完整工具正文。"""
+ 
+     for current in _exception_chain(exc):
+@@ -1265,6 +1265,29 @@
+         if isinstance(tool_calls, list):
+             return deepcopy(tool_calls)
+     return []
++
++
++def _append_execution_observations(previous: dict[str, Any], current: dict[str, Any]) -> dict[str, Any]:
++    """同一节点人工恢复时保留前段观测；新节点不继承的边界由恢复入口负责。"""
++    values = {}
++    for key in ("model_requests", "tool_calls", "tool_observations"):
++        if isinstance(current.get(key), list):
++            recorded = previous.get(key, [])
++            if not isinstance(recorded, list):
++                raise ValueError("已保存的执行观测必须是数组")
++            values[key] = deepcopy([*recorded, *current[key]])
++    return values
++
++
++def _set_paused_execution_observations(node_run: AgentNodeRun, pause: ConflictConfirmationRequired) -> None:
++    """只保存暂停阶段已附带的观测，保留检查点、计量游标和其他控制字段。"""
++    state = dict(node_run.sdk_state or {})
++    diagnostic = _agent_error_diagnostic(pause) or {}
++    observations = {key: diagnostic[key] for key in ("model_requests", "tool_observations")
++                    if isinstance(diagnostic.get(key), list)}
++    if isinstance(getattr(pause, "tool_calls", None), list):
++        observations["tool_calls"] = _failed_agent_tool_calls(pause)
++    node_run.sdk_state = {**state, **_append_execution_observations(state, observations)}
+ 
+ 
+ def _agent_failure_kind(exc: Exception) -> str:
+@@ -3223,9 +3246,10 @@
+             "last_agent_name": result.last_agent_name,
+             "model": model_metadata,
+             "usage": result.usage,
+-            "tool_calls": result.tool_calls,
+-            "tool_observations": result.tool_observations,
+-            "model_requests": result.model_requests,
++            **_append_execution_observations(dict(setup.node_run.sdk_state or {}), {
++                "tool_calls": result.tool_calls, "tool_observations": result.tool_observations,
++                "model_requests": result.model_requests,
++            }),
+             "budget_usage": result.budget_usage,
+             **retry_state.checkpoint(),
+             "input_projection": projection_diagnostics,
+@@ -3882,6 +3906,7 @@
+         )
+         repo.db.add(approval)
+         repo.db.flush()
++        _set_paused_execution_observations(node_run, pause)
+         node_run.status = "waiting_approval"
+         node_run.finished_at = _now()
+         repo.db.add(node_run)
+--- /dev/null
++++ b/backend/tests/agent_platform/test_pause_observability_real_data.py
+@@ -0,0 +1,143 @@
++"""真实 Run59 SDK 诊断与 Approval15 题目的异源控制测试，不重建 Run61 缺失事件。"""
++
++from copy import deepcopy
++import gzip
++import json
++from pathlib import Path
++from types import SimpleNamespace
++
++import pytest
++from sqlalchemy import create_engine
++from sqlalchemy.orm import Session
++
++from core.db.model_defs import AgentNodeRun
++from modules.agent_platform.action_journal import action_state_hash
++from modules.agent_platform.conflict_confirmation import ConflictConfirmationRequired
++from modules.agent_platform.retry_policy import restorable_sdk_state
++from modules.agent_platform.runtime import _append_execution_observations, _set_paused_execution_observations
++from modules.agent_platform.sdk_adapter import _attach_execution_observations
++
++
++@pytest.fixture(scope="module")
++def real():
++    path = Path(__file__).with_name("fixtures") / "pause_observability_cross_source_real.json.gz"
++    value = json.loads(gzip.decompress(path.read_bytes()))
++    expected = value.pop("data_sha256")
++    assert action_state_hash(value) == expected
++    return value
++
++
++def pause_with_metadata(real, metadata=None):
++    """审批只提供真实控制题目，不把它解释成诊断来源 Run59 的业务审批。"""
++    pause = ConflictConfirmationRequired(deepcopy(real["approval"]["request_payload"]["items"]))
++    values = real["metadata"] if metadata is None else metadata
++    _attach_execution_observations(pause, **values)
++    return pause
++
++
++def test_fixture_sources_are_explicit_and_missing_run61_events_are_not_recreated(real):
++    source = real["provenance"]
++    assert source["sdk_metadata_source"]["run_id"] == 59
++    assert source["sdk_metadata_source"]["node_id"] == 404
++    assert source["pause_items_source"]["run_id"] == 61
++    assert source["pause_items_source"]["approval_id"] == 15
++    assert source["does_not_reconstruct_run61_missing_95_requests"] is True
++    missing = source["actual_run61_paused_node_observation"]
++    assert int(missing["reported_requests"]) == 95
++    assert not any(missing[key] for key in ("has_model_requests", "has_tool_calls", "has_tool_observations"))
++    assert {request["run_id"] for request in real["metadata"]["model_requests"]} == {59}
++    assert len(real["metadata"]["model_requests"]) == 200
++
++
++def test_base_exception_pause_keeps_exact_sdk_observations_without_error_flags(real):
++    pause = pause_with_metadata(real)
++    assert isinstance(pause, BaseException) and not isinstance(pause, Exception)
++    assert pause.items == real["approval"]["request_payload"]["items"]
++    assert pause.diagnostic == {key: real["metadata"][key] for key in ("model_requests", "tool_observations")}
++    assert pause.tool_calls == real["metadata"]["tool_calls"]
++    assert "exception_chain" not in pause.diagnostic
++    assert "budget_usage" not in pause.diagnostic
++
++
++def test_paused_node_only_adds_observations_and_never_recounts_budget(real):
++    node = SimpleNamespace(**deepcopy(real["source_node"]))
++    before = deepcopy(node.sdk_state)
++    _set_paused_execution_observations(node, pause_with_metadata(real))
++    assert {key: value for key, value in node.sdk_state.items() if key not in real["metadata"]} == before
++    assert all(node.sdk_state[key] == value for key, value in real["metadata"].items())
++    assert node.sdk_state["action_checkpoint"]["budget"] == before["action_checkpoint"]["budget"]
++    assert node.sdk_state["action_usage"] == before["action_usage"]
++    assert node.sdk_state["usage"] == before["usage"]
++    assert "error_diagnostic" not in node.sdk_state
++    assert node.status == real["source_node"]["status"]
++
++
++def test_observation_copies_are_detached_from_sdk_and_pause_buffers(real):
++    values = deepcopy(real["metadata"])
++    pause = pause_with_metadata(real, values)
++    for value in values.values():
++        value.clear()
++    node = SimpleNamespace(**deepcopy(real["source_node"]))
++    _set_paused_execution_observations(node, pause)
++    pause.tool_calls.clear()
++    for value in pause.diagnostic.values():
++        value.clear()
++    assert all(node.sdk_state[key] == value for key, value in real["metadata"].items())
++
++
++def test_actual_observation_fields_survive_isolated_sqlite_node_json_roundtrip(real):
++    shadow = create_engine("sqlite+pysqlite:///:memory:")
++    AgentNodeRun.__table__.create(shadow)
++    try:
++        with Session(shadow) as db:
++            node = AgentNodeRun(**deepcopy(real["source_node"]))
++            db.add(node)
++            db.commit()
++            _set_paused_execution_observations(node, pause_with_metadata(real))
++            db.commit()
++            db.expire_all()
++            saved = db.get(AgentNodeRun, real["source_node"]["id"])
++            assert all(saved.sdk_state[key] == value for key, value in real["metadata"].items())
++            assert saved.sdk_state["action_checkpoint"] == real["source_node"]["sdk_state"]["action_checkpoint"]
++    finally:
++        shadow.dispose()
++
++
++def test_resumption_omits_old_diagnostics_and_only_attaches_current_control_slice(real):
++    original = SimpleNamespace(**deepcopy(real["source_node"]))
++    _set_paused_execution_observations(original, pause_with_metadata(real))
++    before = deepcopy(original.sdk_state)
++    restored = restorable_sdk_state(original)
++    assert not set(restored).intersection(real["metadata"])
++    # 真实记录切片只检验当前会话边界，不宣称它是 Run61 恢复阶段的新请求。
++    current_slice = {key: deepcopy(value[-1:]) for key, value in real["metadata"].items()}
++    resumed = SimpleNamespace(sdk_state=restored)
++    _set_paused_execution_observations(resumed, pause_with_metadata(real, current_slice))
++    assert all(resumed.sdk_state[key] == value for key, value in current_slice.items())
++    assert original.sdk_state == before
++    assert resumed.sdk_state["action_checkpoint"]["budget"] == before["action_checkpoint"]["budget"]
++    assert resumed.sdk_state["action_usage"] == before["action_usage"]
++
++
++def test_same_node_continuation_appends_disjoint_real_observation_slices(real):
++    node = SimpleNamespace(**deepcopy(real["source_node"]))
++    prefix = {key: deepcopy(value[:-1]) for key, value in real["metadata"].items()}
++    suffix = {key: deepcopy(value[-1:]) for key, value in real["metadata"].items()}
++    _set_paused_execution_observations(node, pause_with_metadata(real, prefix))
++    paused = deepcopy(node.sdk_state)
++    # 同一节点恢复后，success 与再次暂停使用同一追加边界；不把切片说成真实61阶段。
++    success_observations = _append_execution_observations(node.sdk_state, suffix)
++    assert success_observations == real["metadata"]
++    _set_paused_execution_observations(node, pause_with_metadata(real, suffix))
++    assert all(node.sdk_state[key] == value for key, value in real["metadata"].items())
++    assert all(paused[key] == value for key, value in prefix.items())
++    assert node.sdk_state["action_checkpoint"] == real["source_node"]["sdk_state"]["action_checkpoint"]
++    assert node.sdk_state["action_usage"] == real["source_node"]["sdk_state"]["action_usage"]
++
++
++def test_missing_diagnostic_attachment_does_not_invent_empty_or_historical_records(real):
++    node = SimpleNamespace(**deepcopy(real["source_node"]))
++    before = deepcopy(node.sdk_state)
++    pause = ConflictConfirmationRequired(deepcopy(real["approval"]["request_payload"]["items"]))
++    _set_paused_execution_observations(node, pause)
++    assert node.sdk_state == before

@@ -1,0 +1,198 @@
+--- backend\modules\agent_platform\test_generation_schemas.py
++++ backend\modules\agent_platform\test_generation_schemas.py
+@@ -566,6 +566,27 @@
+ _support_agent_decision_schema = PLANNING_ROUTE_REPAIR_AGENT_OUTPUT_SCHEMA["properties"]["decisions"]["items"]
+ _support_agent_decision_schema["properties"].pop("disposition")
+ _support_agent_decision_schema["required"].remove("disposition")
++# 模型只在本次完整输入内提交整数引用；持久领域协议始终使用原稳定事实ID。
++_support_ref_array_schema = {"type": "array", "uniqueItems": True,
++                             "items": {"type": "integer", "minimum": 1}}
++_support_agent_decision_schema["properties"].pop("fact_ids")
++_support_agent_decision_schema["properties"]["fact_refs"] = deepcopy(_support_ref_array_schema)
++_support_agent_decision_schema["required"] = [
++    "fact_refs" if field == "fact_ids" else field for field in _support_agent_decision_schema["required"]
++]
++for _support_agent_gap_schema in _support_agent_decision_schema["properties"]["support_gaps"]["items"]["oneOf"]:
++    _support_agent_gap_schema["properties"].pop("evidence_fact_ids")
++    _support_agent_gap_schema["properties"]["evidence_fact_refs"] = deepcopy(_support_ref_array_schema)
++    _support_agent_gap_schema["required"] = [
++        "evidence_fact_refs" if field == "evidence_fact_ids" else field
++        for field in _support_agent_gap_schema["required"]
++    ]
++    if "conflict" in _support_agent_gap_schema["properties"]:
++        _support_agent_side_schema = _support_agent_gap_schema["properties"]["conflict"]["properties"]["sides"]["items"]
++        _support_agent_side_schema["properties"].pop("fact_id")
++        _support_agent_side_schema["properties"]["fact_ref"] = {"type": "integer", "minimum": 1}
++        _support_agent_side_schema["required"] = ["fact_ref", "quote"]
++
+ 
+ 
+ BATCH_FINAL_REVIEW_DIFFERENCE_CATEGORIES = [
+@@ -2092,7 +2113,7 @@
+     "scope_evidence": True, "additional_scope_ids": True,
+     "_planning_feedback": {"question": True, "downstream_problems": True},
+ }
+-PLANNING_SUPPORT_MODEL_INPUT_PROJECTION_VERSION = "planning-support-v5-shared-source"
++PLANNING_SUPPORT_MODEL_INPUT_PROJECTION_VERSION = "planning-support-v6-fact-refs"
+ 
+ AUTHORITY_RECONCILIATION_ITEM_SCHEMA: dict[str, Any] = {
+     "type": "object",
+--- backend\modules\agent_platform\test_generation_semantics.py
++++ backend\modules\agent_platform\test_generation_semantics.py
+@@ -2940,9 +2940,22 @@
+     return {key: deepcopy(source[key]) for key in AUTHORITY_MODEL_INPUT_PROJECTION if key in source}
+ 
+ 
++def planning_support_fact_ref_catalog(facts: list[dict[str, Any]]) -> dict[int, str]:
++    """当前请求的引用目录只由完整稳定ID排序生成，不依赖字典或事实读取顺序。"""
++    if not isinstance(facts, list) or not facts or any(not isinstance(fact, dict) for fact in facts):
++        raise ValueError("支持复核引用目录缺少完整事实")
++    identities = [required_text(fact.get("fact_id"), "fact_id") for fact in facts]
++    if (len(set(identities)) != len(identities)
++            or any(identity != fact["fact_id"] for identity, fact in zip(identities, facts, strict=True))):
++        raise ValueError("支持复核引用目录的稳定事实身份重复或无效")
++    return dict(enumerate(sorted(identities), start=1))
++
++
+ def planning_support_source_review(facts: list[dict[str, Any]]) -> dict[str, Any]:
+     """支持审查沿用来源共享编码；只共享模型原本接收的字段，不改变可信事实。"""
+-    projected = [{key: deepcopy(fact[key]) for key in PLANNING_SUPPORT_FACT_FIELDS if key in fact} for fact in facts]
++    refs_by_id = {identity: reference for reference, identity in planning_support_fact_ref_catalog(facts).items()}
++    projected = [{**{key: deepcopy(fact[key]) for key in PLANNING_SUPPORT_FACT_FIELDS if key in fact},
++                  "fact_ref": refs_by_id[fact["fact_id"]]} for fact in facts]
+     return authority_source_review_view(projected)
+ 
+ 
+--- backend\modules\agent_platform\test_generation_planning.py
++++ backend\modules\agent_platform\test_generation_planning.py
+@@ -1526,7 +1526,7 @@
+     return output
+ 
+ 
+-def postprocess_planning_route_repair_item(
++def postprocess_planning_support_decisions(
+     context: ToolExecutionContext,
+     arguments: dict[str, Any],
+ ) -> dict[str, Any]:
+@@ -1537,6 +1537,48 @@
+         prepared=dict(arguments.get("item_input") or {}),
+         raw_output=dict(arguments.get("item_output") or {}),
+     )
++
++
++def postprocess_planning_route_repair_item(context: ToolExecutionContext, arguments: dict[str, Any]) -> dict[str, Any]:
++    """唯一当前模型提交协议：校验可见目录并把整数引用恢复为稳定事实ID。"""
++    from jsonschema import ValidationError, validate
++    from .test_generation_schemas import PLANNING_ROUTE_REPAIR_AGENT_OUTPUT_SCHEMA
++    from .test_generation_semantics import planning_support_fact_ref_catalog, planning_support_source_review
++
++    prepared = dict(arguments.get("item_input") or {})
++    facts = prepared.get("candidate_facts")
++    catalog = planning_support_fact_ref_catalog(facts)
++    if prepared.get("source_review") != planning_support_source_review(facts):
++        raise ValueError("支持复核模型可见事实目录与当前完整输入不一致")
++    output = deepcopy(arguments.get("item_output"))
++    try:
++        validate(instance=output, schema=PLANNING_ROUTE_REPAIR_AGENT_OUTPUT_SCHEMA)
++    except ValidationError as error:
++        raise OutputValidationError("支持复核必须使用当前fact_ref输出协议",
++            details={"field_path": list(error.absolute_path), "validation_message": error.message}) from error
++
++    def fact_id(reference):
++        # JSON Schema的integer可能接受1.0；引用身份必须是真正整数，布尔也不能冒充编号。
++        if type(reference) is not int or reference not in catalog:
++            raise OutputValidationError("支持复核引用不在当前可见fact_ref目录中",
++                details={"invalid_fact_ref": reference, "allowed_fact_refs": list(catalog)})
++        return catalog[reference]
++
++    def fact_ids(references):
++        values = [fact_id(reference) for reference in references]
++        if len(set(values)) != len(values):
++            raise OutputValidationError("支持复核事实引用不能重复")
++        return values
++
++    for decision in output["decisions"]:
++        decision["fact_ids"] = fact_ids(decision.pop("fact_refs"))
++        for gap in decision["support_gaps"]:
++            gap["evidence_fact_ids"] = fact_ids(gap.pop("evidence_fact_refs"))
++            if gap["kind"] == "source_conflict":
++                for side in gap["conflict"]["sides"]:
++                    # 同一事实可以承载两段不同原文；双方唯一性继续按原(fact_id,quote)核对。
++                    side["fact_id"] = fact_id(side.pop("fact_ref"))
++    return postprocess_planning_support_decisions(context, {"item_input": prepared, "item_output": output})
+ 
+ 
+ def planning_support_request_hash(item: dict[str, Any]) -> str:
+--- backend\modules\agent_platform\test_generation_planning_agent.py
++++ backend\modules\agent_platform\test_generation_planning_agent.py
+@@ -23,7 +23,7 @@
+     current_planning_support_decisions,
+     planning_support_design_hashes,
+     merge_planning_scope_routes,
+-    postprocess_planning_route_repair_item,
++    postprocess_planning_support_decisions,
+     postprocess_planning_scope_routing_item,
+     prepare_business_plan_batches,
+     prepare_business_plan_consolidation,
+@@ -37,7 +37,7 @@
+     merge_source_semantics, merge_source_authority, _governed_source_semantics,
+     build_authority_baseline, build_source_authority_baseline, prepare_authority_reconciliation,
+     validate_authority_baseline_result,
+-    planning_support_source_review, planning_support_model_payload,
++    planning_support_source_review, planning_support_model_payload, planning_support_fact_ref_catalog,
+ )
+ 
+ if TYPE_CHECKING:
+@@ -465,7 +465,7 @@
+             records.append(None)
+         else:
+             output = {"module_index": item["module_index"], "decisions": decisions}
+-            normalized = postprocess_planning_route_repair_item(_isolated_context(context),
++            normalized = postprocess_planning_support_decisions(_isolated_context(context),
+                 {"item_input": state["gap_inputs"][index], "item_output": output})
+             records.append({"item_index": index, "input_hash": action_state_hash(state["gap_inputs"][index]), "output": normalized})
+     state["gap_records"] = records
+@@ -522,7 +522,7 @@
+             output = {"module_index": index, "decisions": [
+                 {**decision, "test_design_item_index": designs[request["intent_id"]]["test_design_item_index"]}
+                 for request, decision in group]}
+-            normalized = postprocess_planning_route_repair_item(_isolated_context(context),
++            normalized = postprocess_planning_support_decisions(_isolated_context(context),
+                 {"item_input": item, "item_output": output})
+         except (ValueError, OutputValidationError, KeyError):
+             # 已验收历史结论保留在依赖仓；当前读集或旧裁决改变时仅不再投影，不能放宽复验。
+@@ -1129,7 +1129,7 @@
+     state = _check_action(context, action, outputs)
+     for index, item, output in zip(action["item_indexes"], action["items"], outputs, strict=True):
+         try:
+-            normalized = postprocess_planning_route_repair_item(_isolated_context(context), {"item_input": item, "item_output": output})
++            normalized = postprocess_planning_support_decisions(_isolated_context(context), {"item_input": item, "item_output": output})
+         except ValueError as error:
+             raise OutputValidationError(str(error), details={"stage": "route_gap_review", "item_index": index}) from error
+         actual = _support_review_inputs(context, [item])[0]
+@@ -1177,8 +1177,10 @@
+     groups = []
+     statistics = []
+     for item in _support_review_inputs(context, items):
+-        fact_ids = [fact["fact_id"] for fact in item["candidate_facts"]]
+-        quote_candidates = {(fact["fact_id"], fact["assertion"]): {"fact_id": fact["fact_id"], "quote": fact["assertion"]}
++        catalog = planning_support_fact_ref_catalog(item["candidate_facts"])
++        refs_by_id = {identity: reference for reference, identity in catalog.items()}
++        fact_refs = list(catalog)
++        quote_candidates = {(fact["fact_id"], fact["assertion"]): {"fact_ref": refs_by_id[fact["fact_id"]], "quote": fact["assertion"]}
+                             for fact in item["candidate_facts"] if fact["assertion"].strip()}
+         sides = sorted(quote_candidates.values(), key=estimate_json_tokens, reverse=True)[:2]
+         # 以实际原子断言代表局部引用，保留完整证明包络和既有推理余量；这不是任意长quote的硬上界。
+@@ -1188,10 +1190,10 @@
+         for design in item["missing_test_design_items"]:
+             # 使用本意图与实际事实编号估计一个完整判定及缺口；为推理和多个条件保留等量余量。
+             decision_view = {"test_design_item_index": design["test_design_item_index"],
+-                             "disposition": "unsupported", "fact_ids": fact_ids,
++                             "fact_refs": fact_refs,
+                              "reason": design["coverage_intent"], "support_gaps": [{
+                                  "coverage_fragment": design["coverage_intent"], "kind": "source_conflict",
+-                                 "evidence_fact_ids": fact_ids, "reason": design["coverage_intent"],
++                                 "evidence_fact_refs": fact_refs, "reason": design["coverage_intent"],
+                                  "conflict": {"subject": item["module_name"], "condition": design["coverage_intent"],
+                                               "sides": sides, "incompatibility": design["coverage_intent"]},
+                              }]}

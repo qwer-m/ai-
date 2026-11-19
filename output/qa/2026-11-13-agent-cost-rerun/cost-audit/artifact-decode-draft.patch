@@ -1,0 +1,45 @@
+--- backend\modules\agent_platform\checkpoint_storage.py
++++ backend\modules\agent_platform\checkpoint_storage.py
+@@ -175,7 +175,7 @@
+         def expand(reference):
+             identity = reference["id"]
+             if identity in decoded:
+-                return deepcopy(decoded[identity])
++                return decoded[identity]
+             if identity in active:
+                 raise CheckpointStorageError("产物引用存在循环")
+             active.add(identity)
+@@ -184,10 +184,10 @@
+                 if set(entry) == {"ref"}:
+                     return expand(entry["ref"])
+                 if set(entry) == {"value"}:
+-                    return deepcopy(entry["value"])
++                    return entry["value"]
+                 raise CheckpointStorageError("产物子块结构无效")
+             if payload["type"] == "inline":
+-                value = deepcopy(payload["value"])
++                value = payload["value"]
+             elif payload["type"] == "object":
+                 entries = payload["entries"]
+                 if len({entry[0] for entry in entries}) != len(entries):
+@@ -213,8 +213,18 @@
+                 raise CheckpointStorageError("产物展开后的完整内容摘要不一致")
+             active.remove(identity)
+             decoded[identity] = value
+-            return deepcopy(value)
+-        return expand(ref)
++            return value
++
++        def materialize(value):
++            # 展开缓存只在本次 get 内共享；交付时每个出现位置各自拥有可变容器。
++            # 不使用 deepcopy 的 memo，防止相同内容引用在不同路径上形成可变别名。
++            if isinstance(value, dict):
++                return {key: materialize(item) for key, item in value.items()}
++            if isinstance(value, list):
++                return [materialize(item) for item in value]
++            return value
++
++        return materialize(expand(ref))
+ 
+ 
+ def store_for_node(db: Session, node: AgentNodeRun) -> ArtifactStore:

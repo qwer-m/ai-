@@ -1,0 +1,1339 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="6" failures="0" skipped="0" tests="14" time="21.070" timestamp="2026-11-13T11:33:23.092040+08:00" hostname="DESKTOP-F86RMFU"><testcase classname="backend.tests.agent_platform.test_artifact_read_cost_real_data" name="test_decoded_real_large_state_preserves_all_content_and_exact_hash" time="7.629"><error message="failed on setup with &quot;sqlalchemy.exc.IntegrityError: (sqlite3.IntegrityError) NOT NULL constraint failed: agent_runs.workflow_definition_id&#10;[SQL: INSERT INTO agent_runs (id, user_id, project_id, workflow_definition_id, status, current_node_key, input_payload, run_context, output_payload, error_message, task_id, claim_token, heartbeat_at, lease_expires_at, parent_run_id, started_at, finished_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id, created_at, updated_at]&#10;[parameters: (59, 1, 8, None, 'pending', None, '{&quot;case_budget&quot;: 70, &quot;requirement&quot;: &quot;&quot;, &quot;batch_case_limit&quot;: 5, &quot;requirement_doc_id&quot;: 287, &quot;disable_result_cache&quot;: true, &quot;source_context_run_id&quot;: 53, &quot;enable_context_compression&quot;: true, &quot;context_compression_max_tokens&quot;: 1800}', '{&quot;artifacts&quot;: {&quot;requirement_source&quot;: {&quot;kind&quot;: &quot;knowledge_document&quot;, &quot;doc_type&quot;: &quot;requirement&quot;, &quot;filename&quot;: &quot;\\u540c\\u6b65\\u4f18\\u5b66 \\u00b7 \\u4 ... (1 characters truncated) ... a7\\u54c1\\u9700\\u6c42\\u6587\\u6863.pdf&quot;, &quot;document_id&quot;: 287, &quot;content_hash&quot;: &quot;3e9659e0c2fb3d4f4c30774b3212109969e528e5a2ea4d776dd418226fb7b1d3&quot;}}}', '{}', '', None, None, None, None, None, None, None)]&#10;(Background on this error at: https://sqlalche.me/e/20/gkpj)&quot;">self = &lt;sqlalchemy.engine.base.Connection object at 0x0000019F21E2B1D0&gt;
+dialect = &lt;sqlalchemy.dialects.sqlite.pysqlite.SQLiteDialect_pysqlite object at 0x0000019F4E7E05D0&gt;
+context = &lt;sqlalchemy.dialects.sqlite.base.SQLiteExecutionContext object at 0x0000019F4F4140D0&gt;
+statement = &lt;sqlalchemy.dialects.sqlite.base.SQLiteCompiler object at 0x0000019F4F415410&gt;
+parameters = [(59, 1, 8, None, 'pending', None, ...)]
+
+    def _exec_single_context(
+        self,
+        dialect: Dialect,
+        context: ExecutionContext,
+        statement: Union[str, Compiled],
+        parameters: Optional[_AnyMultiExecuteParams],
+    ) -&gt; CursorResult[Any]:
+        """continue the _execute_context() method for a single DBAPI
+        cursor.execute() or cursor.executemany() call.
+    
+        """
+        if dialect.bind_typing is BindTyping.SETINPUTSIZES:
+            generic_setinputsizes = context._prepare_set_input_sizes()
+    
+            if generic_setinputsizes:
+                try:
+                    dialect.do_set_input_sizes(
+                        context.cursor, generic_setinputsizes, context
+                    )
+                except BaseException as e:
+                    self._handle_dbapi_exception(
+                        e, str(statement), parameters, None, context
+                    )
+    
+        cursor, str_statement, parameters = (
+            context.cursor,
+            context.statement,
+            context.parameters,
+        )
+    
+        effective_parameters: Optional[_AnyExecuteParams]
+    
+        if not context.executemany:
+            effective_parameters = parameters[0]
+        else:
+            effective_parameters = parameters
+    
+        if self._has_events or self.engine._has_events:
+            for fn in self.dispatch.before_cursor_execute:
+                str_statement, effective_parameters = fn(
+                    self,
+                    cursor,
+                    str_statement,
+                    effective_parameters,
+                    context,
+                    context.executemany,
+                )
+    
+        if self._echo:
+            self._log_info(str_statement)
+    
+            stats = context._get_cache_stats()
+    
+            if not self.engine.hide_parameters:
+                self._log_info(
+                    "[%s] %r",
+                    stats,
+                    sql_util._repr_params(
+                        effective_parameters,
+                        batches=10,
+                        ismulti=context.executemany,
+                    ),
+                )
+            else:
+                self._log_info(
+                    "[%s] [SQL parameters hidden due to hide_parameters=True]",
+                    stats,
+                )
+    
+        evt_handled: bool = False
+        try:
+            if context.execute_style is ExecuteStyle.EXECUTEMANY:
+                effective_parameters = cast(
+                    "_CoreMultiExecuteParams", effective_parameters
+                )
+                if self.dialect._has_events:
+                    for fn in self.dialect.dispatch.do_executemany:
+                        if fn(
+                            cursor,
+                            str_statement,
+                            effective_parameters,
+                            context,
+                        ):
+                            evt_handled = True
+                            break
+                if not evt_handled:
+                    self.dialect.do_executemany(
+                        cursor,
+                        str_statement,
+                        effective_parameters,
+                        context,
+                    )
+            elif not effective_parameters and context.no_parameters:
+                if self.dialect._has_events:
+                    for fn in self.dialect.dispatch.do_execute_no_params:
+                        if fn(cursor, str_statement, context):
+                            evt_handled = True
+                            break
+                if not evt_handled:
+                    self.dialect.do_execute_no_params(
+                        cursor, str_statement, context
+                    )
+            else:
+                effective_parameters = cast(
+                    "_CoreSingleExecuteParams", effective_parameters
+                )
+                if self.dialect._has_events:
+                    for fn in self.dialect.dispatch.do_execute:
+                        if fn(
+                            cursor,
+                            str_statement,
+                            effective_parameters,
+                            context,
+                        ):
+                            evt_handled = True
+                            break
+                if not evt_handled:
+&gt;                   self.dialect.do_execute(
+                        cursor, str_statement, effective_parameters, context
+                    )
+
+.venv\Lib\site-packages\sqlalchemy\engine\base.py:1967: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = &lt;sqlalchemy.dialects.sqlite.pysqlite.SQLiteDialect_pysqlite object at 0x0000019F4E7E05D0&gt;
+cursor = &lt;sqlite3.Cursor object at 0x0000019F4F82CF40&gt;
+statement = 'INSERT INTO agent_runs (id, user_id, project_id, workflow_definition_id, status, current_node_key, input_payload, run...arted_at, finished_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id, created_at, updated_at'
+parameters = (59, 1, 8, None, 'pending', None, ...)
+context = &lt;sqlalchemy.dialects.sqlite.base.SQLiteExecutionContext object at 0x0000019F4F4140D0&gt;
+
+    def do_execute(self, cursor, statement, parameters, context=None):
+&gt;       cursor.execute(statement, parameters)
+E       sqlite3.IntegrityError: NOT NULL constraint failed: agent_runs.workflow_definition_id
+
+.venv\Lib\site-packages\sqlalchemy\engine\default.py:952: IntegrityError
+
+The above exception was the direct cause of the following exception:
+
+real = {'provenance': {'run_id': 59, 'node_id': 404, 'status': 'success', 'source_state_sha256': 'c3099eed6af2416c65751feb11c...nd': 'knowledge_document', 'doc_type': 'requirement', 'filename': '同步优学 · 产品需求文档.pdf', 'document_id': 287, ...}}}, ...}
+
+    @pytest.fixture(scope="module")
+    def persisted(real):
+        engine = create_engine("sqlite+pysqlite:///:memory:")
+        AgentArtifactBlob.__table__.create(engine)
+        AgentRun.__table__.create(engine)
+        with Session(engine, autoflush=False, expire_on_commit=False) as db:
+            # 仅复制真实运行的来源身份和内容到隔离库，不访问或改写业务数据库。
+            db.add(AgentRun(**deepcopy(real["run_metadata"]), input_payload=deepcopy(real["input_payload"]),
+                run_context=deepcopy(real["initial_run_context"])))
+            store = ArtifactStore(db, user_id=1, project_id=8)
+            ref = store.put(real["state"])
+            assert store.new_rows &gt; 0
+&gt;           db.commit()
+
+backend\tests\agent_platform\test_artifact_read_cost_real_data.py:43: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+.venv\Lib\site-packages\sqlalchemy\orm\session.py:2030: in commit
+    trans.commit(_to_root=True)
+&lt;string&gt;:2: in commit
+    ???
+.venv\Lib\site-packages\sqlalchemy\orm\state_changes.py:137: in _go
+    ret_value = fn(self, *arg, **kw)
+                ^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\sqlalchemy\orm\session.py:1311: in commit
+    self._prepare_impl()
+&lt;string&gt;:2: in _prepare_impl
+    ???
+.venv\Lib\site-packages\sqlalchemy\orm\state_changes.py:137: in _go
+    ret_value = fn(self, *arg, **kw)
+                ^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\sqlalchemy\orm\session.py:1286: in _prepare_impl
+    self.session.flush()
+.venv\Lib\site-packages\sqlalchemy\orm\session.py:4331: in flush
+    self._flush(objects)
+.venv\Lib\site-packages\sqlalchemy\orm\session.py:4466: in _flush
+    with util.safe_reraise():
+.venv\Lib\site-packages\sqlalchemy\util\langhelpers.py:121: in __exit__
+    raise exc_value.with_traceback(exc_tb)
+.venv\Lib\site-packages\sqlalchemy\orm\session.py:4427: in _flush
+    flush_context.execute()
+.venv\Lib\site-packages\sqlalchemy\orm\unitofwork.py:466: in execute
+    rec.execute(self)
+.venv\Lib\site-packages\sqlalchemy\orm\unitofwork.py:642: in execute
+    util.preloaded.orm_persistence.save_obj(
+.venv\Lib\site-packages\sqlalchemy\orm\persistence.py:93: in save_obj
+    _emit_insert_statements(
+.venv\Lib\site-packages\sqlalchemy\orm\persistence.py:1233: in _emit_insert_statements
+    result = connection.execute(
+.venv\Lib\site-packages\sqlalchemy\engine\base.py:1419: in execute
+    return meth(
+.venv\Lib\site-packages\sqlalchemy\sql\elements.py:527: in _execute_on_connection
+    return connection._execute_clauseelement(
+.venv\Lib\site-packages\sqlalchemy\engine\base.py:1641: in _execute_clauseelement
+    ret = self._execute_context(
+.venv\Lib\site-packages\sqlalchemy\engine\base.py:1846: in _execute_context
+    return self._exec_single_context(
+.venv\Lib\site-packages\sqlalchemy\engine\base.py:1986: in _exec_single_context
+    self._handle_dbapi_exception(
+.venv\Lib\site-packages\sqlalchemy\engine\base.py:2363: in _handle_dbapi_exception
+    raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
+.venv\Lib\site-packages\sqlalchemy\engine\base.py:1967: in _exec_single_context
+    self.dialect.do_execute(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = &lt;sqlalchemy.dialects.sqlite.pysqlite.SQLiteDialect_pysqlite object at 0x0000019F4E7E05D0&gt;
+cursor = &lt;sqlite3.Cursor object at 0x0000019F4F82CF40&gt;
+statement = 'INSERT INTO agent_runs (id, user_id, project_id, workflow_definition_id, status, current_node_key, input_payload, run...arted_at, finished_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id, created_at, updated_at'
+parameters = (59, 1, 8, None, 'pending', None, ...)
+context = &lt;sqlalchemy.dialects.sqlite.base.SQLiteExecutionContext object at 0x0000019F4F4140D0&gt;
+
+    def do_execute(self, cursor, statement, parameters, context=None):
+&gt;       cursor.execute(statement, parameters)
+E       sqlalchemy.exc.IntegrityError: (sqlite3.IntegrityError) NOT NULL constraint failed: agent_runs.workflow_definition_id
+E       [SQL: INSERT INTO agent_runs (id, user_id, project_id, workflow_definition_id, status, current_node_key, input_payload, run_context, output_payload, error_message, task_id, claim_token, heartbeat_at, lease_expires_at, parent_run_id, started_at, finished_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id, created_at, updated_at]
+E       [parameters: (59, 1, 8, None, 'pending', None, '{"case_budget": 70, "requirement": "", "batch_case_limit": 5, "requirement_doc_id": 287, "disable_result_cache": true, "source_context_run_id": 53, "enable_context_compression": true, "context_compression_max_tokens": 1800}', '{"artifacts": {"requirement_source": {"kind": "knowledge_document", "doc_type": "requirement", "filename": "\\u540c\\u6b65\\u4f18\\u5b66 \\u00b7 \\u4 ... (1 characters truncated) ... a7\\u54c1\\u9700\\u6c42\\u6587\\u6863.pdf", "document_id": 287, "content_hash": "3e9659e0c2fb3d4f4c30774b3212109969e528e5a2ea4d776dd418226fb7b1d3"}}}', '{}', '', None, None, None, None, None, None, None)]
+E       (Background on this error at: https://sqlalche.me/e/20/gkpj)
+
+.venv\Lib\site-packages\sqlalchemy\engine\default.py:952: IntegrityError</error></testcase><testcase classname="backend.tests.agent_platform.test_artifact_read_cost_real_data" name="test_cached_identical_chunks_do_not_alias_distinct_occurrences" time="0.002"><error message="failed on setup with &quot;sqlalchemy.exc.IntegrityError: (sqlite3.IntegrityError) NOT NULL constraint failed: agent_runs.workflow_definition_id&#10;[SQL: INSERT INTO agent_runs (id, user_id, project_id, workflow_definition_id, status, current_node_key, input_payload, run_context, output_payload, error_message, task_id, claim_token, heartbeat_at, lease_expires_at, parent_run_id, started_at, finished_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id, created_at, updated_at]&#10;[parameters: (59, 1, 8, None, 'pending', None, '{&quot;case_budget&quot;: 70, &quot;requirement&quot;: &quot;&quot;, &quot;batch_case_limit&quot;: 5, &quot;requirement_doc_id&quot;: 287, &quot;disable_result_cache&quot;: true, &quot;source_context_run_id&quot;: 53, &quot;enable_context_compression&quot;: true, &quot;context_compression_max_tokens&quot;: 1800}', '{&quot;artifacts&quot;: {&quot;requirement_source&quot;: {&quot;kind&quot;: &quot;knowledge_document&quot;, &quot;doc_type&quot;: &quot;requirement&quot;, &quot;filename&quot;: &quot;\\u540c\\u6b65\\u4f18\\u5b66 \\u00b7 \\u4 ... (1 characters truncated) ... a7\\u54c1\\u9700\\u6c42\\u6587\\u6863.pdf&quot;, &quot;document_id&quot;: 287, &quot;content_hash&quot;: &quot;3e9659e0c2fb3d4f4c30774b3212109969e528e5a2ea4d776dd418226fb7b1d3&quot;}}}', '{}', '', None, None, None, None, None, None, None)]&#10;(Background on this error at: https://sqlalche.me/e/20/gkpj)&quot;">self = &lt;sqlalchemy.engine.base.Connection object at 0x0000019F21E2B1D0&gt;
+dialect = &lt;sqlalchemy.dialects.sqlite.pysqlite.SQLiteDialect_pysqlite object at 0x0000019F4E7E05D0&gt;
+context = &lt;sqlalchemy.dialects.sqlite.base.SQLiteExecutionContext object at 0x0000019F4F4140D0&gt;
+statement = &lt;sqlalchemy.dialects.sqlite.base.SQLiteCompiler object at 0x0000019F4F415410&gt;
+parameters = [(59, 1, 8, None, 'pending', None, ...)]
+
+    def _exec_single_context(
+        self,
+        dialect: Dialect,
+        context: ExecutionContext,
+        statement: Union[str, Compiled],
+        parameters: Optional[_AnyMultiExecuteParams],
+    ) -&gt; CursorResult[Any]:
+        """continue the _execute_context() method for a single DBAPI
+        cursor.execute() or cursor.executemany() call.
+    
+        """
+        if dialect.bind_typing is BindTyping.SETINPUTSIZES:
+            generic_setinputsizes = context._prepare_set_input_sizes()
+    
+            if generic_setinputsizes:
+                try:
+                    dialect.do_set_input_sizes(
+                        context.cursor, generic_setinputsizes, context
+                    )
+                except BaseException as e:
+                    self._handle_dbapi_exception(
+                        e, str(statement), parameters, None, context
+                    )
+    
+        cursor, str_statement, parameters = (
+            context.cursor,
+            context.statement,
+            context.parameters,
+        )
+    
+        effective_parameters: Optional[_AnyExecuteParams]
+    
+        if not context.executemany:
+            effective_parameters = parameters[0]
+        else:
+            effective_parameters = parameters
+    
+        if self._has_events or self.engine._has_events:
+            for fn in self.dispatch.before_cursor_execute:
+                str_statement, effective_parameters = fn(
+                    self,
+                    cursor,
+                    str_statement,
+                    effective_parameters,
+                    context,
+                    context.executemany,
+                )
+    
+        if self._echo:
+            self._log_info(str_statement)
+    
+            stats = context._get_cache_stats()
+    
+            if not self.engine.hide_parameters:
+                self._log_info(
+                    "[%s] %r",
+                    stats,
+                    sql_util._repr_params(
+                        effective_parameters,
+                        batches=10,
+                        ismulti=context.executemany,
+                    ),
+                )
+            else:
+                self._log_info(
+                    "[%s] [SQL parameters hidden due to hide_parameters=True]",
+                    stats,
+                )
+    
+        evt_handled: bool = False
+        try:
+            if context.execute_style is ExecuteStyle.EXECUTEMANY:
+                effective_parameters = cast(
+                    "_CoreMultiExecuteParams", effective_parameters
+                )
+                if self.dialect._has_events:
+                    for fn in self.dialect.dispatch.do_executemany:
+                        if fn(
+                            cursor,
+                            str_statement,
+                            effective_parameters,
+                            context,
+                        ):
+                            evt_handled = True
+                            break
+                if not evt_handled:
+                    self.dialect.do_executemany(
+                        cursor,
+                        str_statement,
+                        effective_parameters,
+                        context,
+                    )
+            elif not effective_parameters and context.no_parameters:
+                if self.dialect._has_events:
+                    for fn in self.dialect.dispatch.do_execute_no_params:
+                        if fn(cursor, str_statement, context):
+                            evt_handled = True
+                            break
+                if not evt_handled:
+                    self.dialect.do_execute_no_params(
+                        cursor, str_statement, context
+                    )
+            else:
+                effective_parameters = cast(
+                    "_CoreSingleExecuteParams", effective_parameters
+                )
+                if self.dialect._has_events:
+                    for fn in self.dialect.dispatch.do_execute:
+                        if fn(
+                            cursor,
+                            str_statement,
+                            effective_parameters,
+                            context,
+                        ):
+                            evt_handled = True
+                            break
+                if not evt_handled:
+&gt;                   self.dialect.do_execute(
+                        cursor, str_statement, effective_parameters, context
+                    )
+
+.venv\Lib\site-packages\sqlalchemy\engine\base.py:1967: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = &lt;sqlalchemy.dialects.sqlite.pysqlite.SQLiteDialect_pysqlite object at 0x0000019F4E7E05D0&gt;
+cursor = &lt;sqlite3.Cursor object at 0x0000019F4F82CF40&gt;
+statement = 'INSERT INTO agent_runs (id, user_id, project_id, workflow_definition_id, status, current_node_key, input_payload, run...arted_at, finished_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id, created_at, updated_at'
+parameters = (59, 1, 8, None, 'pending', None, ...)
+context = &lt;sqlalchemy.dialects.sqlite.base.SQLiteExecutionContext object at 0x0000019F4F4140D0&gt;
+
+    def do_execute(self, cursor, statement, parameters, context=None):
+&gt;       cursor.execute(statement, parameters)
+E       sqlite3.IntegrityError: NOT NULL constraint failed: agent_runs.workflow_definition_id
+
+.venv\Lib\site-packages\sqlalchemy\engine\default.py:952: IntegrityError
+
+The above exception was the direct cause of the following exception:
+
+real = {'provenance': {'run_id': 59, 'node_id': 404, 'status': 'success', 'source_state_sha256': 'c3099eed6af2416c65751feb11c...nd': 'knowledge_document', 'doc_type': 'requirement', 'filename': '同步优学 · 产品需求文档.pdf', 'document_id': 287, ...}}}, ...}
+
+    @pytest.fixture(scope="module")
+    def persisted(real):
+        engine = create_engine("sqlite+pysqlite:///:memory:")
+        AgentArtifactBlob.__table__.create(engine)
+        AgentRun.__table__.create(engine)
+        with Session(engine, autoflush=False, expire_on_commit=False) as db:
+            # 仅复制真实运行的来源身份和内容到隔离库，不访问或改写业务数据库。
+            db.add(AgentRun(**deepcopy(real["run_metadata"]), input_payload=deepcopy(real["input_payload"]),
+                run_context=deepcopy(real["initial_run_context"])))
+            store = ArtifactStore(db, user_id=1, project_id=8)
+            ref = store.put(real["state"])
+            assert store.new_rows &gt; 0
+&gt;           db.commit()
+
+backend\tests\agent_platform\test_artifact_read_cost_real_data.py:43: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+.venv\Lib\site-packages\sqlalchemy\orm\session.py:2030: in commit
+    trans.commit(_to_root=True)
+&lt;string&gt;:2: in commit
+    ???
+.venv\Lib\site-packages\sqlalchemy\orm\state_changes.py:137: in _go
+    ret_value = fn(self, *arg, **kw)
+                ^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\sqlalchemy\orm\session.py:1311: in commit
+    self._prepare_impl()
+&lt;string&gt;:2: in _prepare_impl
+    ???
+.venv\Lib\site-packages\sqlalchemy\orm\state_changes.py:137: in _go
+    ret_value = fn(self, *arg, **kw)
+                ^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\sqlalchemy\orm\session.py:1286: in _prepare_impl
+    self.session.flush()
+.venv\Lib\site-packages\sqlalchemy\orm\session.py:4331: in flush
+    self._flush(objects)
+.venv\Lib\site-packages\sqlalchemy\orm\session.py:4466: in _flush
+    with util.safe_reraise():
+.venv\Lib\site-packages\sqlalchemy\util\langhelpers.py:121: in __exit__
+    raise exc_value.with_traceback(exc_tb)
+.venv\Lib\site-packages\sqlalchemy\orm\session.py:4427: in _flush
+    flush_context.execute()
+.venv\Lib\site-packages\sqlalchemy\orm\unitofwork.py:466: in execute
+    rec.execute(self)
+.venv\Lib\site-packages\sqlalchemy\orm\unitofwork.py:642: in execute
+    util.preloaded.orm_persistence.save_obj(
+.venv\Lib\site-packages\sqlalchemy\orm\persistence.py:93: in save_obj
+    _emit_insert_statements(
+.venv\Lib\site-packages\sqlalchemy\orm\persistence.py:1233: in _emit_insert_statements
+    result = connection.execute(
+.venv\Lib\site-packages\sqlalchemy\engine\base.py:1419: in execute
+    return meth(
+.venv\Lib\site-packages\sqlalchemy\sql\elements.py:527: in _execute_on_connection
+    return connection._execute_clauseelement(
+.venv\Lib\site-packages\sqlalchemy\engine\base.py:1641: in _execute_clauseelement
+    ret = self._execute_context(
+.venv\Lib\site-packages\sqlalchemy\engine\base.py:1846: in _execute_context
+    return self._exec_single_context(
+.venv\Lib\site-packages\sqlalchemy\engine\base.py:1986: in _exec_single_context
+    self._handle_dbapi_exception(
+.venv\Lib\site-packages\sqlalchemy\engine\base.py:2363: in _handle_dbapi_exception
+    raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
+.venv\Lib\site-packages\sqlalchemy\engine\base.py:1967: in _exec_single_context
+    self.dialect.do_execute(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = &lt;sqlalchemy.dialects.sqlite.pysqlite.SQLiteDialect_pysqlite object at 0x0000019F4E7E05D0&gt;
+cursor = &lt;sqlite3.Cursor object at 0x0000019F4F82CF40&gt;
+statement = 'INSERT INTO agent_runs (id, user_id, project_id, workflow_definition_id, status, current_node_key, input_payload, run...arted_at, finished_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id, created_at, updated_at'
+parameters = (59, 1, 8, None, 'pending', None, ...)
+context = &lt;sqlalchemy.dialects.sqlite.base.SQLiteExecutionContext object at 0x0000019F4F4140D0&gt;
+
+    def do_execute(self, cursor, statement, parameters, context=None):
+&gt;       cursor.execute(statement, parameters)
+E       sqlalchemy.exc.IntegrityError: (sqlite3.IntegrityError) NOT NULL constraint failed: agent_runs.workflow_definition_id
+E       [SQL: INSERT INTO agent_runs (id, user_id, project_id, workflow_definition_id, status, current_node_key, input_payload, run_context, output_payload, error_message, task_id, claim_token, heartbeat_at, lease_expires_at, parent_run_id, started_at, finished_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id, created_at, updated_at]
+E       [parameters: (59, 1, 8, None, 'pending', None, '{"case_budget": 70, "requirement": "", "batch_case_limit": 5, "requirement_doc_id": 287, "disable_result_cache": true, "source_context_run_id": 53, "enable_context_compression": true, "context_compression_max_tokens": 1800}', '{"artifacts": {"requirement_source": {"kind": "knowledge_document", "doc_type": "requirement", "filename": "\\u540c\\u6b65\\u4f18\\u5b66 \\u00b7 \\u4 ... (1 characters truncated) ... a7\\u54c1\\u9700\\u6c42\\u6587\\u6863.pdf", "document_id": 287, "content_hash": "3e9659e0c2fb3d4f4c30774b3212109969e528e5a2ea4d776dd418226fb7b1d3"}}}', '{}', '', None, None, None, None, None, None, None)]
+E       (Background on this error at: https://sqlalche.me/e/20/gkpj)
+
+.venv\Lib\site-packages\sqlalchemy\engine\default.py:952: IntegrityError</error></testcase><testcase classname="backend.tests.agent_platform.test_artifact_read_cost_real_data" name="test_separate_reads_remain_independent_and_cannot_change_saved_content" time="0.002"><error message="failed on setup with &quot;sqlalchemy.exc.IntegrityError: (sqlite3.IntegrityError) NOT NULL constraint failed: agent_runs.workflow_definition_id&#10;[SQL: INSERT INTO agent_runs (id, user_id, project_id, workflow_definition_id, status, current_node_key, input_payload, run_context, output_payload, error_message, task_id, claim_token, heartbeat_at, lease_expires_at, parent_run_id, started_at, finished_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id, created_at, updated_at]&#10;[parameters: (59, 1, 8, None, 'pending', None, '{&quot;case_budget&quot;: 70, &quot;requirement&quot;: &quot;&quot;, &quot;batch_case_limit&quot;: 5, &quot;requirement_doc_id&quot;: 287, &quot;disable_result_cache&quot;: true, &quot;source_context_run_id&quot;: 53, &quot;enable_context_compression&quot;: true, &quot;context_compression_max_tokens&quot;: 1800}', '{&quot;artifacts&quot;: {&quot;requirement_source&quot;: {&quot;kind&quot;: &quot;knowledge_document&quot;, &quot;doc_type&quot;: &quot;requirement&quot;, &quot;filename&quot;: &quot;\\u540c\\u6b65\\u4f18\\u5b66 \\u00b7 \\u4 ... (1 characters truncated) ... a7\\u54c1\\u9700\\u6c42\\u6587\\u6863.pdf&quot;, &quot;document_id&quot;: 287, &quot;content_hash&quot;: &quot;3e9659e0c2fb3d4f4c30774b3212109969e528e5a2ea4d776dd418226fb7b1d3&quot;}}}', '{}', '', None, None, None, None, None, None, None)]&#10;(Background on this error at: https://sqlalche.me/e/20/gkpj)&quot;">self = &lt;sqlalchemy.engine.base.Connection object at 0x0000019F21E2B1D0&gt;
+dialect = &lt;sqlalchemy.dialects.sqlite.pysqlite.SQLiteDialect_pysqlite object at 0x0000019F4E7E05D0&gt;
+context = &lt;sqlalchemy.dialects.sqlite.base.SQLiteExecutionContext object at 0x0000019F4F4140D0&gt;
+statement = &lt;sqlalchemy.dialects.sqlite.base.SQLiteCompiler object at 0x0000019F4F415410&gt;
+parameters = [(59, 1, 8, None, 'pending', None, ...)]
+
+    def _exec_single_context(
+        self,
+        dialect: Dialect,
+        context: ExecutionContext,
+        statement: Union[str, Compiled],
+        parameters: Optional[_AnyMultiExecuteParams],
+    ) -&gt; CursorResult[Any]:
+        """continue the _execute_context() method for a single DBAPI
+        cursor.execute() or cursor.executemany() call.
+    
+        """
+        if dialect.bind_typing is BindTyping.SETINPUTSIZES:
+            generic_setinputsizes = context._prepare_set_input_sizes()
+    
+            if generic_setinputsizes:
+                try:
+                    dialect.do_set_input_sizes(
+                        context.cursor, generic_setinputsizes, context
+                    )
+                except BaseException as e:
+                    self._handle_dbapi_exception(
+                        e, str(statement), parameters, None, context
+                    )
+    
+        cursor, str_statement, parameters = (
+            context.cursor,
+            context.statement,
+            context.parameters,
+        )
+    
+        effective_parameters: Optional[_AnyExecuteParams]
+    
+        if not context.executemany:
+            effective_parameters = parameters[0]
+        else:
+            effective_parameters = parameters
+    
+        if self._has_events or self.engine._has_events:
+            for fn in self.dispatch.before_cursor_execute:
+                str_statement, effective_parameters = fn(
+                    self,
+                    cursor,
+                    str_statement,
+                    effective_parameters,
+                    context,
+                    context.executemany,
+                )
+    
+        if self._echo:
+            self._log_info(str_statement)
+    
+            stats = context._get_cache_stats()
+    
+            if not self.engine.hide_parameters:
+                self._log_info(
+                    "[%s] %r",
+                    stats,
+                    sql_util._repr_params(
+                        effective_parameters,
+                        batches=10,
+                        ismulti=context.executemany,
+                    ),
+                )
+            else:
+                self._log_info(
+                    "[%s] [SQL parameters hidden due to hide_parameters=True]",
+                    stats,
+                )
+    
+        evt_handled: bool = False
+        try:
+            if context.execute_style is ExecuteStyle.EXECUTEMANY:
+                effective_parameters = cast(
+                    "_CoreMultiExecuteParams", effective_parameters
+                )
+                if self.dialect._has_events:
+                    for fn in self.dialect.dispatch.do_executemany:
+                        if fn(
+                            cursor,
+                            str_statement,
+                            effective_parameters,
+                            context,
+                        ):
+                            evt_handled = True
+                            break
+                if not evt_handled:
+                    self.dialect.do_executemany(
+                        cursor,
+                        str_statement,
+                        effective_parameters,
+                        context,
+                    )
+            elif not effective_parameters and context.no_parameters:
+                if self.dialect._has_events:
+                    for fn in self.dialect.dispatch.do_execute_no_params:
+                        if fn(cursor, str_statement, context):
+                            evt_handled = True
+                            break
+                if not evt_handled:
+                    self.dialect.do_execute_no_params(
+                        cursor, str_statement, context
+                    )
+            else:
+                effective_parameters = cast(
+                    "_CoreSingleExecuteParams", effective_parameters
+                )
+                if self.dialect._has_events:
+                    for fn in self.dialect.dispatch.do_execute:
+                        if fn(
+                            cursor,
+                            str_statement,
+                            effective_parameters,
+                            context,
+                        ):
+                            evt_handled = True
+                            break
+                if not evt_handled:
+&gt;                   self.dialect.do_execute(
+                        cursor, str_statement, effective_parameters, context
+                    )
+
+.venv\Lib\site-packages\sqlalchemy\engine\base.py:1967: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = &lt;sqlalchemy.dialects.sqlite.pysqlite.SQLiteDialect_pysqlite object at 0x0000019F4E7E05D0&gt;
+cursor = &lt;sqlite3.Cursor object at 0x0000019F4F82CF40&gt;
+statement = 'INSERT INTO agent_runs (id, user_id, project_id, workflow_definition_id, status, current_node_key, input_payload, run...arted_at, finished_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id, created_at, updated_at'
+parameters = (59, 1, 8, None, 'pending', None, ...)
+context = &lt;sqlalchemy.dialects.sqlite.base.SQLiteExecutionContext object at 0x0000019F4F4140D0&gt;
+
+    def do_execute(self, cursor, statement, parameters, context=None):
+&gt;       cursor.execute(statement, parameters)
+E       sqlite3.IntegrityError: NOT NULL constraint failed: agent_runs.workflow_definition_id
+
+.venv\Lib\site-packages\sqlalchemy\engine\default.py:952: IntegrityError
+
+The above exception was the direct cause of the following exception:
+
+real = {'provenance': {'run_id': 59, 'node_id': 404, 'status': 'success', 'source_state_sha256': 'c3099eed6af2416c65751feb11c...nd': 'knowledge_document', 'doc_type': 'requirement', 'filename': '同步优学 · 产品需求文档.pdf', 'document_id': 287, ...}}}, ...}
+
+    @pytest.fixture(scope="module")
+    def persisted(real):
+        engine = create_engine("sqlite+pysqlite:///:memory:")
+        AgentArtifactBlob.__table__.create(engine)
+        AgentRun.__table__.create(engine)
+        with Session(engine, autoflush=False, expire_on_commit=False) as db:
+            # 仅复制真实运行的来源身份和内容到隔离库，不访问或改写业务数据库。
+            db.add(AgentRun(**deepcopy(real["run_metadata"]), input_payload=deepcopy(real["input_payload"]),
+                run_context=deepcopy(real["initial_run_context"])))
+            store = ArtifactStore(db, user_id=1, project_id=8)
+            ref = store.put(real["state"])
+            assert store.new_rows &gt; 0
+&gt;           db.commit()
+
+backend\tests\agent_platform\test_artifact_read_cost_real_data.py:43: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+.venv\Lib\site-packages\sqlalchemy\orm\session.py:2030: in commit
+    trans.commit(_to_root=True)
+&lt;string&gt;:2: in commit
+    ???
+.venv\Lib\site-packages\sqlalchemy\orm\state_changes.py:137: in _go
+    ret_value = fn(self, *arg, **kw)
+                ^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\sqlalchemy\orm\session.py:1311: in commit
+    self._prepare_impl()
+&lt;string&gt;:2: in _prepare_impl
+    ???
+.venv\Lib\site-packages\sqlalchemy\orm\state_changes.py:137: in _go
+    ret_value = fn(self, *arg, **kw)
+                ^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\sqlalchemy\orm\session.py:1286: in _prepare_impl
+    self.session.flush()
+.venv\Lib\site-packages\sqlalchemy\orm\session.py:4331: in flush
+    self._flush(objects)
+.venv\Lib\site-packages\sqlalchemy\orm\session.py:4466: in _flush
+    with util.safe_reraise():
+.venv\Lib\site-packages\sqlalchemy\util\langhelpers.py:121: in __exit__
+    raise exc_value.with_traceback(exc_tb)
+.venv\Lib\site-packages\sqlalchemy\orm\session.py:4427: in _flush
+    flush_context.execute()
+.venv\Lib\site-packages\sqlalchemy\orm\unitofwork.py:466: in execute
+    rec.execute(self)
+.venv\Lib\site-packages\sqlalchemy\orm\unitofwork.py:642: in execute
+    util.preloaded.orm_persistence.save_obj(
+.venv\Lib\site-packages\sqlalchemy\orm\persistence.py:93: in save_obj
+    _emit_insert_statements(
+.venv\Lib\site-packages\sqlalchemy\orm\persistence.py:1233: in _emit_insert_statements
+    result = connection.execute(
+.venv\Lib\site-packages\sqlalchemy\engine\base.py:1419: in execute
+    return meth(
+.venv\Lib\site-packages\sqlalchemy\sql\elements.py:527: in _execute_on_connection
+    return connection._execute_clauseelement(
+.venv\Lib\site-packages\sqlalchemy\engine\base.py:1641: in _execute_clauseelement
+    ret = self._execute_context(
+.venv\Lib\site-packages\sqlalchemy\engine\base.py:1846: in _execute_context
+    return self._exec_single_context(
+.venv\Lib\site-packages\sqlalchemy\engine\base.py:1986: in _exec_single_context
+    self._handle_dbapi_exception(
+.venv\Lib\site-packages\sqlalchemy\engine\base.py:2363: in _handle_dbapi_exception
+    raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
+.venv\Lib\site-packages\sqlalchemy\engine\base.py:1967: in _exec_single_context
+    self.dialect.do_execute(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = &lt;sqlalchemy.dialects.sqlite.pysqlite.SQLiteDialect_pysqlite object at 0x0000019F4E7E05D0&gt;
+cursor = &lt;sqlite3.Cursor object at 0x0000019F4F82CF40&gt;
+statement = 'INSERT INTO agent_runs (id, user_id, project_id, workflow_definition_id, status, current_node_key, input_payload, run...arted_at, finished_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id, created_at, updated_at'
+parameters = (59, 1, 8, None, 'pending', None, ...)
+context = &lt;sqlalchemy.dialects.sqlite.base.SQLiteExecutionContext object at 0x0000019F4F4140D0&gt;
+
+    def do_execute(self, cursor, statement, parameters, context=None):
+&gt;       cursor.execute(statement, parameters)
+E       sqlalchemy.exc.IntegrityError: (sqlite3.IntegrityError) NOT NULL constraint failed: agent_runs.workflow_definition_id
+E       [SQL: INSERT INTO agent_runs (id, user_id, project_id, workflow_definition_id, status, current_node_key, input_payload, run_context, output_payload, error_message, task_id, claim_token, heartbeat_at, lease_expires_at, parent_run_id, started_at, finished_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id, created_at, updated_at]
+E       [parameters: (59, 1, 8, None, 'pending', None, '{"case_budget": 70, "requirement": "", "batch_case_limit": 5, "requirement_doc_id": 287, "disable_result_cache": true, "source_context_run_id": 53, "enable_context_compression": true, "context_compression_max_tokens": 1800}', '{"artifacts": {"requirement_source": {"kind": "knowledge_document", "doc_type": "requirement", "filename": "\\u540c\\u6b65\\u4f18\\u5b66 \\u00b7 \\u4 ... (1 characters truncated) ... a7\\u54c1\\u9700\\u6c42\\u6587\\u6863.pdf", "document_id": 287, "content_hash": "3e9659e0c2fb3d4f4c30774b3212109969e528e5a2ea4d776dd418226fb7b1d3"}}}', '{}', '', None, None, None, None, None, None, None)]
+E       (Background on this error at: https://sqlalche.me/e/20/gkpj)
+
+.venv\Lib\site-packages\sqlalchemy\engine\default.py:952: IntegrityError</error></testcase><testcase classname="backend.tests.agent_platform.test_artifact_read_cost_real_data" name="test_readonly_source_view_and_mutating_context_keep_distinct_ownership" time="0.001"><error message="failed on setup with &quot;sqlalchemy.exc.IntegrityError: (sqlite3.IntegrityError) NOT NULL constraint failed: agent_runs.workflow_definition_id&#10;[SQL: INSERT INTO agent_runs (id, user_id, project_id, workflow_definition_id, status, current_node_key, input_payload, run_context, output_payload, error_message, task_id, claim_token, heartbeat_at, lease_expires_at, parent_run_id, started_at, finished_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id, created_at, updated_at]&#10;[parameters: (59, 1, 8, None, 'pending', None, '{&quot;case_budget&quot;: 70, &quot;requirement&quot;: &quot;&quot;, &quot;batch_case_limit&quot;: 5, &quot;requirement_doc_id&quot;: 287, &quot;disable_result_cache&quot;: true, &quot;source_context_run_id&quot;: 53, &quot;enable_context_compression&quot;: true, &quot;context_compression_max_tokens&quot;: 1800}', '{&quot;artifacts&quot;: {&quot;requirement_source&quot;: {&quot;kind&quot;: &quot;knowledge_document&quot;, &quot;doc_type&quot;: &quot;requirement&quot;, &quot;filename&quot;: &quot;\\u540c\\u6b65\\u4f18\\u5b66 \\u00b7 \\u4 ... (1 characters truncated) ... a7\\u54c1\\u9700\\u6c42\\u6587\\u6863.pdf&quot;, &quot;document_id&quot;: 287, &quot;content_hash&quot;: &quot;3e9659e0c2fb3d4f4c30774b3212109969e528e5a2ea4d776dd418226fb7b1d3&quot;}}}', '{}', '', None, None, None, None, None, None, None)]&#10;(Background on this error at: https://sqlalche.me/e/20/gkpj)&quot;">self = &lt;sqlalchemy.engine.base.Connection object at 0x0000019F21E2B1D0&gt;
+dialect = &lt;sqlalchemy.dialects.sqlite.pysqlite.SQLiteDialect_pysqlite object at 0x0000019F4E7E05D0&gt;
+context = &lt;sqlalchemy.dialects.sqlite.base.SQLiteExecutionContext object at 0x0000019F4F4140D0&gt;
+statement = &lt;sqlalchemy.dialects.sqlite.base.SQLiteCompiler object at 0x0000019F4F415410&gt;
+parameters = [(59, 1, 8, None, 'pending', None, ...)]
+
+    def _exec_single_context(
+        self,
+        dialect: Dialect,
+        context: ExecutionContext,
+        statement: Union[str, Compiled],
+        parameters: Optional[_AnyMultiExecuteParams],
+    ) -&gt; CursorResult[Any]:
+        """continue the _execute_context() method for a single DBAPI
+        cursor.execute() or cursor.executemany() call.
+    
+        """
+        if dialect.bind_typing is BindTyping.SETINPUTSIZES:
+            generic_setinputsizes = context._prepare_set_input_sizes()
+    
+            if generic_setinputsizes:
+                try:
+                    dialect.do_set_input_sizes(
+                        context.cursor, generic_setinputsizes, context
+                    )
+                except BaseException as e:
+                    self._handle_dbapi_exception(
+                        e, str(statement), parameters, None, context
+                    )
+    
+        cursor, str_statement, parameters = (
+            context.cursor,
+            context.statement,
+            context.parameters,
+        )
+    
+        effective_parameters: Optional[_AnyExecuteParams]
+    
+        if not context.executemany:
+            effective_parameters = parameters[0]
+        else:
+            effective_parameters = parameters
+    
+        if self._has_events or self.engine._has_events:
+            for fn in self.dispatch.before_cursor_execute:
+                str_statement, effective_parameters = fn(
+                    self,
+                    cursor,
+                    str_statement,
+                    effective_parameters,
+                    context,
+                    context.executemany,
+                )
+    
+        if self._echo:
+            self._log_info(str_statement)
+    
+            stats = context._get_cache_stats()
+    
+            if not self.engine.hide_parameters:
+                self._log_info(
+                    "[%s] %r",
+                    stats,
+                    sql_util._repr_params(
+                        effective_parameters,
+                        batches=10,
+                        ismulti=context.executemany,
+                    ),
+                )
+            else:
+                self._log_info(
+                    "[%s] [SQL parameters hidden due to hide_parameters=True]",
+                    stats,
+                )
+    
+        evt_handled: bool = False
+        try:
+            if context.execute_style is ExecuteStyle.EXECUTEMANY:
+                effective_parameters = cast(
+                    "_CoreMultiExecuteParams", effective_parameters
+                )
+                if self.dialect._has_events:
+                    for fn in self.dialect.dispatch.do_executemany:
+                        if fn(
+                            cursor,
+                            str_statement,
+                            effective_parameters,
+                            context,
+                        ):
+                            evt_handled = True
+                            break
+                if not evt_handled:
+                    self.dialect.do_executemany(
+                        cursor,
+                        str_statement,
+                        effective_parameters,
+                        context,
+                    )
+            elif not effective_parameters and context.no_parameters:
+                if self.dialect._has_events:
+                    for fn in self.dialect.dispatch.do_execute_no_params:
+                        if fn(cursor, str_statement, context):
+                            evt_handled = True
+                            break
+                if not evt_handled:
+                    self.dialect.do_execute_no_params(
+                        cursor, str_statement, context
+                    )
+            else:
+                effective_parameters = cast(
+                    "_CoreSingleExecuteParams", effective_parameters
+                )
+                if self.dialect._has_events:
+                    for fn in self.dialect.dispatch.do_execute:
+                        if fn(
+                            cursor,
+                            str_statement,
+                            effective_parameters,
+                            context,
+                        ):
+                            evt_handled = True
+                            break
+                if not evt_handled:
+&gt;                   self.dialect.do_execute(
+                        cursor, str_statement, effective_parameters, context
+                    )
+
+.venv\Lib\site-packages\sqlalchemy\engine\base.py:1967: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = &lt;sqlalchemy.dialects.sqlite.pysqlite.SQLiteDialect_pysqlite object at 0x0000019F4E7E05D0&gt;
+cursor = &lt;sqlite3.Cursor object at 0x0000019F4F82CF40&gt;
+statement = 'INSERT INTO agent_runs (id, user_id, project_id, workflow_definition_id, status, current_node_key, input_payload, run...arted_at, finished_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id, created_at, updated_at'
+parameters = (59, 1, 8, None, 'pending', None, ...)
+context = &lt;sqlalchemy.dialects.sqlite.base.SQLiteExecutionContext object at 0x0000019F4F4140D0&gt;
+
+    def do_execute(self, cursor, statement, parameters, context=None):
+&gt;       cursor.execute(statement, parameters)
+E       sqlite3.IntegrityError: NOT NULL constraint failed: agent_runs.workflow_definition_id
+
+.venv\Lib\site-packages\sqlalchemy\engine\default.py:952: IntegrityError
+
+The above exception was the direct cause of the following exception:
+
+real = {'provenance': {'run_id': 59, 'node_id': 404, 'status': 'success', 'source_state_sha256': 'c3099eed6af2416c65751feb11c...nd': 'knowledge_document', 'doc_type': 'requirement', 'filename': '同步优学 · 产品需求文档.pdf', 'document_id': 287, ...}}}, ...}
+
+    @pytest.fixture(scope="module")
+    def persisted(real):
+        engine = create_engine("sqlite+pysqlite:///:memory:")
+        AgentArtifactBlob.__table__.create(engine)
+        AgentRun.__table__.create(engine)
+        with Session(engine, autoflush=False, expire_on_commit=False) as db:
+            # 仅复制真实运行的来源身份和内容到隔离库，不访问或改写业务数据库。
+            db.add(AgentRun(**deepcopy(real["run_metadata"]), input_payload=deepcopy(real["input_payload"]),
+                run_context=deepcopy(real["initial_run_context"])))
+            store = ArtifactStore(db, user_id=1, project_id=8)
+            ref = store.put(real["state"])
+            assert store.new_rows &gt; 0
+&gt;           db.commit()
+
+backend\tests\agent_platform\test_artifact_read_cost_real_data.py:43: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+.venv\Lib\site-packages\sqlalchemy\orm\session.py:2030: in commit
+    trans.commit(_to_root=True)
+&lt;string&gt;:2: in commit
+    ???
+.venv\Lib\site-packages\sqlalchemy\orm\state_changes.py:137: in _go
+    ret_value = fn(self, *arg, **kw)
+                ^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\sqlalchemy\orm\session.py:1311: in commit
+    self._prepare_impl()
+&lt;string&gt;:2: in _prepare_impl
+    ???
+.venv\Lib\site-packages\sqlalchemy\orm\state_changes.py:137: in _go
+    ret_value = fn(self, *arg, **kw)
+                ^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\sqlalchemy\orm\session.py:1286: in _prepare_impl
+    self.session.flush()
+.venv\Lib\site-packages\sqlalchemy\orm\session.py:4331: in flush
+    self._flush(objects)
+.venv\Lib\site-packages\sqlalchemy\orm\session.py:4466: in _flush
+    with util.safe_reraise():
+.venv\Lib\site-packages\sqlalchemy\util\langhelpers.py:121: in __exit__
+    raise exc_value.with_traceback(exc_tb)
+.venv\Lib\site-packages\sqlalchemy\orm\session.py:4427: in _flush
+    flush_context.execute()
+.venv\Lib\site-packages\sqlalchemy\orm\unitofwork.py:466: in execute
+    rec.execute(self)
+.venv\Lib\site-packages\sqlalchemy\orm\unitofwork.py:642: in execute
+    util.preloaded.orm_persistence.save_obj(
+.venv\Lib\site-packages\sqlalchemy\orm\persistence.py:93: in save_obj
+    _emit_insert_statements(
+.venv\Lib\site-packages\sqlalchemy\orm\persistence.py:1233: in _emit_insert_statements
+    result = connection.execute(
+.venv\Lib\site-packages\sqlalchemy\engine\base.py:1419: in execute
+    return meth(
+.venv\Lib\site-packages\sqlalchemy\sql\elements.py:527: in _execute_on_connection
+    return connection._execute_clauseelement(
+.venv\Lib\site-packages\sqlalchemy\engine\base.py:1641: in _execute_clauseelement
+    ret = self._execute_context(
+.venv\Lib\site-packages\sqlalchemy\engine\base.py:1846: in _execute_context
+    return self._exec_single_context(
+.venv\Lib\site-packages\sqlalchemy\engine\base.py:1986: in _exec_single_context
+    self._handle_dbapi_exception(
+.venv\Lib\site-packages\sqlalchemy\engine\base.py:2363: in _handle_dbapi_exception
+    raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
+.venv\Lib\site-packages\sqlalchemy\engine\base.py:1967: in _exec_single_context
+    self.dialect.do_execute(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = &lt;sqlalchemy.dialects.sqlite.pysqlite.SQLiteDialect_pysqlite object at 0x0000019F4E7E05D0&gt;
+cursor = &lt;sqlite3.Cursor object at 0x0000019F4F82CF40&gt;
+statement = 'INSERT INTO agent_runs (id, user_id, project_id, workflow_definition_id, status, current_node_key, input_payload, run...arted_at, finished_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id, created_at, updated_at'
+parameters = (59, 1, 8, None, 'pending', None, ...)
+context = &lt;sqlalchemy.dialects.sqlite.base.SQLiteExecutionContext object at 0x0000019F4F4140D0&gt;
+
+    def do_execute(self, cursor, statement, parameters, context=None):
+&gt;       cursor.execute(statement, parameters)
+E       sqlalchemy.exc.IntegrityError: (sqlite3.IntegrityError) NOT NULL constraint failed: agent_runs.workflow_definition_id
+E       [SQL: INSERT INTO agent_runs (id, user_id, project_id, workflow_definition_id, status, current_node_key, input_payload, run_context, output_payload, error_message, task_id, claim_token, heartbeat_at, lease_expires_at, parent_run_id, started_at, finished_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id, created_at, updated_at]
+E       [parameters: (59, 1, 8, None, 'pending', None, '{"case_budget": 70, "requirement": "", "batch_case_limit": 5, "requirement_doc_id": 287, "disable_result_cache": true, "source_context_run_id": 53, "enable_context_compression": true, "context_compression_max_tokens": 1800}', '{"artifacts": {"requirement_source": {"kind": "knowledge_document", "doc_type": "requirement", "filename": "\\u540c\\u6b65\\u4f18\\u5b66 \\u00b7 \\u4 ... (1 characters truncated) ... a7\\u54c1\\u9700\\u6c42\\u6587\\u6863.pdf", "document_id": 287, "content_hash": "3e9659e0c2fb3d4f4c30774b3212109969e528e5a2ea4d776dd418226fb7b1d3"}}}', '{}', '', None, None, None, None, None, None, None)]
+E       (Background on this error at: https://sqlalche.me/e/20/gkpj)
+
+.venv\Lib\site-packages\sqlalchemy\engine\default.py:952: IntegrityError</error></testcase><testcase classname="backend.tests.agent_platform.test_artifact_read_cost_real_data" name="test_readonly_planning_observation_matches_original_isolated_path_without_mutation" time="0.002"><error message="failed on setup with &quot;sqlalchemy.exc.IntegrityError: (sqlite3.IntegrityError) NOT NULL constraint failed: agent_runs.workflow_definition_id&#10;[SQL: INSERT INTO agent_runs (id, user_id, project_id, workflow_definition_id, status, current_node_key, input_payload, run_context, output_payload, error_message, task_id, claim_token, heartbeat_at, lease_expires_at, parent_run_id, started_at, finished_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id, created_at, updated_at]&#10;[parameters: (59, 1, 8, None, 'pending', None, '{&quot;case_budget&quot;: 70, &quot;requirement&quot;: &quot;&quot;, &quot;batch_case_limit&quot;: 5, &quot;requirement_doc_id&quot;: 287, &quot;disable_result_cache&quot;: true, &quot;source_context_run_id&quot;: 53, &quot;enable_context_compression&quot;: true, &quot;context_compression_max_tokens&quot;: 1800}', '{&quot;artifacts&quot;: {&quot;requirement_source&quot;: {&quot;kind&quot;: &quot;knowledge_document&quot;, &quot;doc_type&quot;: &quot;requirement&quot;, &quot;filename&quot;: &quot;\\u540c\\u6b65\\u4f18\\u5b66 \\u00b7 \\u4 ... (1 characters truncated) ... a7\\u54c1\\u9700\\u6c42\\u6587\\u6863.pdf&quot;, &quot;document_id&quot;: 287, &quot;content_hash&quot;: &quot;3e9659e0c2fb3d4f4c30774b3212109969e528e5a2ea4d776dd418226fb7b1d3&quot;}}}', '{}', '', None, None, None, None, None, None, None)]&#10;(Background on this error at: https://sqlalche.me/e/20/gkpj)&quot;">self = &lt;sqlalchemy.engine.base.Connection object at 0x0000019F21E2B1D0&gt;
+dialect = &lt;sqlalchemy.dialects.sqlite.pysqlite.SQLiteDialect_pysqlite object at 0x0000019F4E7E05D0&gt;
+context = &lt;sqlalchemy.dialects.sqlite.base.SQLiteExecutionContext object at 0x0000019F4F4140D0&gt;
+statement = &lt;sqlalchemy.dialects.sqlite.base.SQLiteCompiler object at 0x0000019F4F415410&gt;
+parameters = [(59, 1, 8, None, 'pending', None, ...)]
+
+    def _exec_single_context(
+        self,
+        dialect: Dialect,
+        context: ExecutionContext,
+        statement: Union[str, Compiled],
+        parameters: Optional[_AnyMultiExecuteParams],
+    ) -&gt; CursorResult[Any]:
+        """continue the _execute_context() method for a single DBAPI
+        cursor.execute() or cursor.executemany() call.
+    
+        """
+        if dialect.bind_typing is BindTyping.SETINPUTSIZES:
+            generic_setinputsizes = context._prepare_set_input_sizes()
+    
+            if generic_setinputsizes:
+                try:
+                    dialect.do_set_input_sizes(
+                        context.cursor, generic_setinputsizes, context
+                    )
+                except BaseException as e:
+                    self._handle_dbapi_exception(
+                        e, str(statement), parameters, None, context
+                    )
+    
+        cursor, str_statement, parameters = (
+            context.cursor,
+            context.statement,
+            context.parameters,
+        )
+    
+        effective_parameters: Optional[_AnyExecuteParams]
+    
+        if not context.executemany:
+            effective_parameters = parameters[0]
+        else:
+            effective_parameters = parameters
+    
+        if self._has_events or self.engine._has_events:
+            for fn in self.dispatch.before_cursor_execute:
+                str_statement, effective_parameters = fn(
+                    self,
+                    cursor,
+                    str_statement,
+                    effective_parameters,
+                    context,
+                    context.executemany,
+                )
+    
+        if self._echo:
+            self._log_info(str_statement)
+    
+            stats = context._get_cache_stats()
+    
+            if not self.engine.hide_parameters:
+                self._log_info(
+                    "[%s] %r",
+                    stats,
+                    sql_util._repr_params(
+                        effective_parameters,
+                        batches=10,
+                        ismulti=context.executemany,
+                    ),
+                )
+            else:
+                self._log_info(
+                    "[%s] [SQL parameters hidden due to hide_parameters=True]",
+                    stats,
+                )
+    
+        evt_handled: bool = False
+        try:
+            if context.execute_style is ExecuteStyle.EXECUTEMANY:
+                effective_parameters = cast(
+                    "_CoreMultiExecuteParams", effective_parameters
+                )
+                if self.dialect._has_events:
+                    for fn in self.dialect.dispatch.do_executemany:
+                        if fn(
+                            cursor,
+                            str_statement,
+                            effective_parameters,
+                            context,
+                        ):
+                            evt_handled = True
+                            break
+                if not evt_handled:
+                    self.dialect.do_executemany(
+                        cursor,
+                        str_statement,
+                        effective_parameters,
+                        context,
+                    )
+            elif not effective_parameters and context.no_parameters:
+                if self.dialect._has_events:
+                    for fn in self.dialect.dispatch.do_execute_no_params:
+                        if fn(cursor, str_statement, context):
+                            evt_handled = True
+                            break
+                if not evt_handled:
+                    self.dialect.do_execute_no_params(
+                        cursor, str_statement, context
+                    )
+            else:
+                effective_parameters = cast(
+                    "_CoreSingleExecuteParams", effective_parameters
+                )
+                if self.dialect._has_events:
+                    for fn in self.dialect.dispatch.do_execute:
+                        if fn(
+                            cursor,
+                            str_statement,
+                            effective_parameters,
+                            context,
+                        ):
+                            evt_handled = True
+                            break
+                if not evt_handled:
+&gt;                   self.dialect.do_execute(
+                        cursor, str_statement, effective_parameters, context
+                    )
+
+.venv\Lib\site-packages\sqlalchemy\engine\base.py:1967: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = &lt;sqlalchemy.dialects.sqlite.pysqlite.SQLiteDialect_pysqlite object at 0x0000019F4E7E05D0&gt;
+cursor = &lt;sqlite3.Cursor object at 0x0000019F4F82CF40&gt;
+statement = 'INSERT INTO agent_runs (id, user_id, project_id, workflow_definition_id, status, current_node_key, input_payload, run...arted_at, finished_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id, created_at, updated_at'
+parameters = (59, 1, 8, None, 'pending', None, ...)
+context = &lt;sqlalchemy.dialects.sqlite.base.SQLiteExecutionContext object at 0x0000019F4F4140D0&gt;
+
+    def do_execute(self, cursor, statement, parameters, context=None):
+&gt;       cursor.execute(statement, parameters)
+E       sqlite3.IntegrityError: NOT NULL constraint failed: agent_runs.workflow_definition_id
+
+.venv\Lib\site-packages\sqlalchemy\engine\default.py:952: IntegrityError
+
+The above exception was the direct cause of the following exception:
+
+real = {'provenance': {'run_id': 59, 'node_id': 404, 'status': 'success', 'source_state_sha256': 'c3099eed6af2416c65751feb11c...nd': 'knowledge_document', 'doc_type': 'requirement', 'filename': '同步优学 · 产品需求文档.pdf', 'document_id': 287, ...}}}, ...}
+
+    @pytest.fixture(scope="module")
+    def persisted(real):
+        engine = create_engine("sqlite+pysqlite:///:memory:")
+        AgentArtifactBlob.__table__.create(engine)
+        AgentRun.__table__.create(engine)
+        with Session(engine, autoflush=False, expire_on_commit=False) as db:
+            # 仅复制真实运行的来源身份和内容到隔离库，不访问或改写业务数据库。
+            db.add(AgentRun(**deepcopy(real["run_metadata"]), input_payload=deepcopy(real["input_payload"]),
+                run_context=deepcopy(real["initial_run_context"])))
+            store = ArtifactStore(db, user_id=1, project_id=8)
+            ref = store.put(real["state"])
+            assert store.new_rows &gt; 0
+&gt;           db.commit()
+
+backend\tests\agent_platform\test_artifact_read_cost_real_data.py:43: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+.venv\Lib\site-packages\sqlalchemy\orm\session.py:2030: in commit
+    trans.commit(_to_root=True)
+&lt;string&gt;:2: in commit
+    ???
+.venv\Lib\site-packages\sqlalchemy\orm\state_changes.py:137: in _go
+    ret_value = fn(self, *arg, **kw)
+                ^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\sqlalchemy\orm\session.py:1311: in commit
+    self._prepare_impl()
+&lt;string&gt;:2: in _prepare_impl
+    ???
+.venv\Lib\site-packages\sqlalchemy\orm\state_changes.py:137: in _go
+    ret_value = fn(self, *arg, **kw)
+                ^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\sqlalchemy\orm\session.py:1286: in _prepare_impl
+    self.session.flush()
+.venv\Lib\site-packages\sqlalchemy\orm\session.py:4331: in flush
+    self._flush(objects)
+.venv\Lib\site-packages\sqlalchemy\orm\session.py:4466: in _flush
+    with util.safe_reraise():
+.venv\Lib\site-packages\sqlalchemy\util\langhelpers.py:121: in __exit__
+    raise exc_value.with_traceback(exc_tb)
+.venv\Lib\site-packages\sqlalchemy\orm\session.py:4427: in _flush
+    flush_context.execute()
+.venv\Lib\site-packages\sqlalchemy\orm\unitofwork.py:466: in execute
+    rec.execute(self)
+.venv\Lib\site-packages\sqlalchemy\orm\unitofwork.py:642: in execute
+    util.preloaded.orm_persistence.save_obj(
+.venv\Lib\site-packages\sqlalchemy\orm\persistence.py:93: in save_obj
+    _emit_insert_statements(
+.venv\Lib\site-packages\sqlalchemy\orm\persistence.py:1233: in _emit_insert_statements
+    result = connection.execute(
+.venv\Lib\site-packages\sqlalchemy\engine\base.py:1419: in execute
+    return meth(
+.venv\Lib\site-packages\sqlalchemy\sql\elements.py:527: in _execute_on_connection
+    return connection._execute_clauseelement(
+.venv\Lib\site-packages\sqlalchemy\engine\base.py:1641: in _execute_clauseelement
+    ret = self._execute_context(
+.venv\Lib\site-packages\sqlalchemy\engine\base.py:1846: in _execute_context
+    return self._exec_single_context(
+.venv\Lib\site-packages\sqlalchemy\engine\base.py:1986: in _exec_single_context
+    self._handle_dbapi_exception(
+.venv\Lib\site-packages\sqlalchemy\engine\base.py:2363: in _handle_dbapi_exception
+    raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
+.venv\Lib\site-packages\sqlalchemy\engine\base.py:1967: in _exec_single_context
+    self.dialect.do_execute(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = &lt;sqlalchemy.dialects.sqlite.pysqlite.SQLiteDialect_pysqlite object at 0x0000019F4E7E05D0&gt;
+cursor = &lt;sqlite3.Cursor object at 0x0000019F4F82CF40&gt;
+statement = 'INSERT INTO agent_runs (id, user_id, project_id, workflow_definition_id, status, current_node_key, input_payload, run...arted_at, finished_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id, created_at, updated_at'
+parameters = (59, 1, 8, None, 'pending', None, ...)
+context = &lt;sqlalchemy.dialects.sqlite.base.SQLiteExecutionContext object at 0x0000019F4F4140D0&gt;
+
+    def do_execute(self, cursor, statement, parameters, context=None):
+&gt;       cursor.execute(statement, parameters)
+E       sqlalchemy.exc.IntegrityError: (sqlite3.IntegrityError) NOT NULL constraint failed: agent_runs.workflow_definition_id
+E       [SQL: INSERT INTO agent_runs (id, user_id, project_id, workflow_definition_id, status, current_node_key, input_payload, run_context, output_payload, error_message, task_id, claim_token, heartbeat_at, lease_expires_at, parent_run_id, started_at, finished_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id, created_at, updated_at]
+E       [parameters: (59, 1, 8, None, 'pending', None, '{"case_budget": 70, "requirement": "", "batch_case_limit": 5, "requirement_doc_id": 287, "disable_result_cache": true, "source_context_run_id": 53, "enable_context_compression": true, "context_compression_max_tokens": 1800}', '{"artifacts": {"requirement_source": {"kind": "knowledge_document", "doc_type": "requirement", "filename": "\\u540c\\u6b65\\u4f18\\u5b66 \\u00b7 \\u4 ... (1 characters truncated) ... a7\\u54c1\\u9700\\u6c42\\u6587\\u6863.pdf", "document_id": 287, "content_hash": "3e9659e0c2fb3d4f4c30774b3212109969e528e5a2ea4d776dd418226fb7b1d3"}}}', '{}', '', None, None, None, None, None, None, None)]
+E       (Background on this error at: https://sqlalche.me/e/20/gkpj)
+
+.venv\Lib\site-packages\sqlalchemy\engine\default.py:952: IntegrityError</error></testcase><testcase classname="backend.tests.agent_platform.test_artifact_read_cost_real_data" name="test_readonly_view_keeps_full_source_hash_validation" time="0.002"><error message="failed on setup with &quot;sqlalchemy.exc.IntegrityError: (sqlite3.IntegrityError) NOT NULL constraint failed: agent_runs.workflow_definition_id&#10;[SQL: INSERT INTO agent_runs (id, user_id, project_id, workflow_definition_id, status, current_node_key, input_payload, run_context, output_payload, error_message, task_id, claim_token, heartbeat_at, lease_expires_at, parent_run_id, started_at, finished_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id, created_at, updated_at]&#10;[parameters: (59, 1, 8, None, 'pending', None, '{&quot;case_budget&quot;: 70, &quot;requirement&quot;: &quot;&quot;, &quot;batch_case_limit&quot;: 5, &quot;requirement_doc_id&quot;: 287, &quot;disable_result_cache&quot;: true, &quot;source_context_run_id&quot;: 53, &quot;enable_context_compression&quot;: true, &quot;context_compression_max_tokens&quot;: 1800}', '{&quot;artifacts&quot;: {&quot;requirement_source&quot;: {&quot;kind&quot;: &quot;knowledge_document&quot;, &quot;doc_type&quot;: &quot;requirement&quot;, &quot;filename&quot;: &quot;\\u540c\\u6b65\\u4f18\\u5b66 \\u00b7 \\u4 ... (1 characters truncated) ... a7\\u54c1\\u9700\\u6c42\\u6587\\u6863.pdf&quot;, &quot;document_id&quot;: 287, &quot;content_hash&quot;: &quot;3e9659e0c2fb3d4f4c30774b3212109969e528e5a2ea4d776dd418226fb7b1d3&quot;}}}', '{}', '', None, None, None, None, None, None, None)]&#10;(Background on this error at: https://sqlalche.me/e/20/gkpj)&quot;">self = &lt;sqlalchemy.engine.base.Connection object at 0x0000019F21E2B1D0&gt;
+dialect = &lt;sqlalchemy.dialects.sqlite.pysqlite.SQLiteDialect_pysqlite object at 0x0000019F4E7E05D0&gt;
+context = &lt;sqlalchemy.dialects.sqlite.base.SQLiteExecutionContext object at 0x0000019F4F4140D0&gt;
+statement = &lt;sqlalchemy.dialects.sqlite.base.SQLiteCompiler object at 0x0000019F4F415410&gt;
+parameters = [(59, 1, 8, None, 'pending', None, ...)]
+
+    def _exec_single_context(
+        self,
+        dialect: Dialect,
+        context: ExecutionContext,
+        statement: Union[str, Compiled],
+        parameters: Optional[_AnyMultiExecuteParams],
+    ) -&gt; CursorResult[Any]:
+        """continue the _execute_context() method for a single DBAPI
+        cursor.execute() or cursor.executemany() call.
+    
+        """
+        if dialect.bind_typing is BindTyping.SETINPUTSIZES:
+            generic_setinputsizes = context._prepare_set_input_sizes()
+    
+            if generic_setinputsizes:
+                try:
+                    dialect.do_set_input_sizes(
+                        context.cursor, generic_setinputsizes, context
+                    )
+                except BaseException as e:
+                    self._handle_dbapi_exception(
+                        e, str(statement), parameters, None, context
+                    )
+    
+        cursor, str_statement, parameters = (
+            context.cursor,
+            context.statement,
+            context.parameters,
+        )
+    
+        effective_parameters: Optional[_AnyExecuteParams]
+    
+        if not context.executemany:
+            effective_parameters = parameters[0]
+        else:
+            effective_parameters = parameters
+    
+        if self._has_events or self.engine._has_events:
+            for fn in self.dispatch.before_cursor_execute:
+                str_statement, effective_parameters = fn(
+                    self,
+                    cursor,
+                    str_statement,
+                    effective_parameters,
+                    context,
+                    context.executemany,
+                )
+    
+        if self._echo:
+            self._log_info(str_statement)
+    
+            stats = context._get_cache_stats()
+    
+            if not self.engine.hide_parameters:
+                self._log_info(
+                    "[%s] %r",
+                    stats,
+                    sql_util._repr_params(
+                        effective_parameters,
+                        batches=10,
+                        ismulti=context.executemany,
+                    ),
+                )
+            else:
+                self._log_info(
+                    "[%s] [SQL parameters hidden due to hide_parameters=True]",
+                    stats,
+                )
+    
+        evt_handled: bool = False
+        try:
+            if context.execute_style is ExecuteStyle.EXECUTEMANY:
+                effective_parameters = cast(
+                    "_CoreMultiExecuteParams", effective_parameters
+                )
+                if self.dialect._has_events:
+                    for fn in self.dialect.dispatch.do_executemany:
+                        if fn(
+                            cursor,
+                            str_statement,
+                            effective_parameters,
+                            context,
+                        ):
+                            evt_handled = True
+                            break
+                if not evt_handled:
+                    self.dialect.do_executemany(
+                        cursor,
+                        str_statement,
+                        effective_parameters,
+                        context,
+                    )
+            elif not effective_parameters and context.no_parameters:
+                if self.dialect._has_events:
+                    for fn in self.dialect.dispatch.do_execute_no_params:
+                        if fn(cursor, str_statement, context):
+                            evt_handled = True
+                            break
+                if not evt_handled:
+                    self.dialect.do_execute_no_params(
+                        cursor, str_statement, context
+                    )
+            else:
+                effective_parameters = cast(
+                    "_CoreSingleExecuteParams", effective_parameters
+                )
+                if self.dialect._has_events:
+                    for fn in self.dialect.dispatch.do_execute:
+                        if fn(
+                            cursor,
+                            str_statement,
+                            effective_parameters,
+                            context,
+                        ):
+                            evt_handled = True
+                            break
+                if not evt_handled:
+&gt;                   self.dialect.do_execute(
+                        cursor, str_statement, effective_parameters, context
+                    )
+
+.venv\Lib\site-packages\sqlalchemy\engine\base.py:1967: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = &lt;sqlalchemy.dialects.sqlite.pysqlite.SQLiteDialect_pysqlite object at 0x0000019F4E7E05D0&gt;
+cursor = &lt;sqlite3.Cursor object at 0x0000019F4F82CF40&gt;
+statement = 'INSERT INTO agent_runs (id, user_id, project_id, workflow_definition_id, status, current_node_key, input_payload, run...arted_at, finished_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id, created_at, updated_at'
+parameters = (59, 1, 8, None, 'pending', None, ...)
+context = &lt;sqlalchemy.dialects.sqlite.base.SQLiteExecutionContext object at 0x0000019F4F4140D0&gt;
+
+    def do_execute(self, cursor, statement, parameters, context=None):
+&gt;       cursor.execute(statement, parameters)
+E       sqlite3.IntegrityError: NOT NULL constraint failed: agent_runs.workflow_definition_id
+
+.venv\Lib\site-packages\sqlalchemy\engine\default.py:952: IntegrityError
+
+The above exception was the direct cause of the following exception:
+
+real = {'provenance': {'run_id': 59, 'node_id': 404, 'status': 'success', 'source_state_sha256': 'c3099eed6af2416c65751feb11c...nd': 'knowledge_document', 'doc_type': 'requirement', 'filename': '同步优学 · 产品需求文档.pdf', 'document_id': 287, ...}}}, ...}
+
+    @pytest.fixture(scope="module")
+    def persisted(real):
+        engine = create_engine("sqlite+pysqlite:///:memory:")
+        AgentArtifactBlob.__table__.create(engine)
+        AgentRun.__table__.create(engine)
+        with Session(engine, autoflush=False, expire_on_commit=False) as db:
+            # 仅复制真实运行的来源身份和内容到隔离库，不访问或改写业务数据库。
+            db.add(AgentRun(**deepcopy(real["run_metadata"]), input_payload=deepcopy(real["input_payload"]),
+                run_context=deepcopy(real["initial_run_context"])))
+            store = ArtifactStore(db, user_id=1, project_id=8)
+            ref = store.put(real["state"])
+            assert store.new_rows &gt; 0
+&gt;           db.commit()
+
+backend\tests\agent_platform\test_artifact_read_cost_real_data.py:43: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+.venv\Lib\site-packages\sqlalchemy\orm\session.py:2030: in commit
+    trans.commit(_to_root=True)
+&lt;string&gt;:2: in commit
+    ???
+.venv\Lib\site-packages\sqlalchemy\orm\state_changes.py:137: in _go
+    ret_value = fn(self, *arg, **kw)
+                ^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\sqlalchemy\orm\session.py:1311: in commit
+    self._prepare_impl()
+&lt;string&gt;:2: in _prepare_impl
+    ???
+.venv\Lib\site-packages\sqlalchemy\orm\state_changes.py:137: in _go
+    ret_value = fn(self, *arg, **kw)
+                ^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\sqlalchemy\orm\session.py:1286: in _prepare_impl
+    self.session.flush()
+.venv\Lib\site-packages\sqlalchemy\orm\session.py:4331: in flush
+    self._flush(objects)
+.venv\Lib\site-packages\sqlalchemy\orm\session.py:4466: in _flush
+    with util.safe_reraise():
+.venv\Lib\site-packages\sqlalchemy\util\langhelpers.py:121: in __exit__
+    raise exc_value.with_traceback(exc_tb)
+.venv\Lib\site-packages\sqlalchemy\orm\session.py:4427: in _flush
+    flush_context.execute()
+.venv\Lib\site-packages\sqlalchemy\orm\unitofwork.py:466: in execute
+    rec.execute(self)
+.venv\Lib\site-packages\sqlalchemy\orm\unitofwork.py:642: in execute
+    util.preloaded.orm_persistence.save_obj(
+.venv\Lib\site-packages\sqlalchemy\orm\persistence.py:93: in save_obj
+    _emit_insert_statements(
+.venv\Lib\site-packages\sqlalchemy\orm\persistence.py:1233: in _emit_insert_statements
+    result = connection.execute(
+.venv\Lib\site-packages\sqlalchemy\engine\base.py:1419: in execute
+    return meth(
+.venv\Lib\site-packages\sqlalchemy\sql\elements.py:527: in _execute_on_connection
+    return connection._execute_clauseelement(
+.venv\Lib\site-packages\sqlalchemy\engine\base.py:1641: in _execute_clauseelement
+    ret = self._execute_context(
+.venv\Lib\site-packages\sqlalchemy\engine\base.py:1846: in _execute_context
+    return self._exec_single_context(
+.venv\Lib\site-packages\sqlalchemy\engine\base.py:1986: in _exec_single_context
+    self._handle_dbapi_exception(
+.venv\Lib\site-packages\sqlalchemy\engine\base.py:2363: in _handle_dbapi_exception
+    raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
+.venv\Lib\site-packages\sqlalchemy\engine\base.py:1967: in _exec_single_context
+    self.dialect.do_execute(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = &lt;sqlalchemy.dialects.sqlite.pysqlite.SQLiteDialect_pysqlite object at 0x0000019F4E7E05D0&gt;
+cursor = &lt;sqlite3.Cursor object at 0x0000019F4F82CF40&gt;
+statement = 'INSERT INTO agent_runs (id, user_id, project_id, workflow_definition_id, status, current_node_key, input_payload, run...arted_at, finished_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id, created_at, updated_at'
+parameters = (59, 1, 8, None, 'pending', None, ...)
+context = &lt;sqlalchemy.dialects.sqlite.base.SQLiteExecutionContext object at 0x0000019F4F4140D0&gt;
+
+    def do_execute(self, cursor, statement, parameters, context=None):
+&gt;       cursor.execute(statement, parameters)
+E       sqlalchemy.exc.IntegrityError: (sqlite3.IntegrityError) NOT NULL constraint failed: agent_runs.workflow_definition_id
+E       [SQL: INSERT INTO agent_runs (id, user_id, project_id, workflow_definition_id, status, current_node_key, input_payload, run_context, output_payload, error_message, task_id, claim_token, heartbeat_at, lease_expires_at, parent_run_id, started_at, finished_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id, created_at, updated_at]
+E       [parameters: (59, 1, 8, None, 'pending', None, '{"case_budget": 70, "requirement": "", "batch_case_limit": 5, "requirement_doc_id": 287, "disable_result_cache": true, "source_context_run_id": 53, "enable_context_compression": true, "context_compression_max_tokens": 1800}', '{"artifacts": {"requirement_source": {"kind": "knowledge_document", "doc_type": "requirement", "filename": "\\u540c\\u6b65\\u4f18\\u5b66 \\u00b7 \\u4 ... (1 characters truncated) ... a7\\u54c1\\u9700\\u6c42\\u6587\\u6863.pdf", "document_id": 287, "content_hash": "3e9659e0c2fb3d4f4c30774b3212109969e528e5a2ea4d776dd418226fb7b1d3"}}}', '{}', '', None, None, None, None, None, None, None)]
+E       (Background on this error at: https://sqlalche.me/e/20/gkpj)
+
+.venv\Lib\site-packages\sqlalchemy\engine\default.py:952: IntegrityError</error></testcase><testcase classname="backend.tests.agent_platform.test_ownership_output_feedback_real_data" name="test_real_fact_identity_typo_is_reported_as_explicit_output_difference" time="0.007" /><testcase classname="backend.tests.agent_platform.test_ownership_output_feedback_real_data" name="test_actual_sdk_submission_rejects_locally_then_accepts_real_recovered_candidate" time="0.082" /><testcase classname="backend.tests.agent_platform.test_ownership_output_feedback_real_data" name="test_real_invalid_submission_does_not_cancel_independent_tool_work" time="0.105" /><testcase classname="backend.tests.agent_platform.test_ownership_output_feedback_real_data" name="test_invalid_trusted_input_protocol_remains_hard_failure" time="0.032" /><testcase classname="backend.tests.agent_platform.test_ownership_output_feedback_real_data" name="test_other_output_boundary_differences_are_local_model_feedback[missing_fact]" time="0.002" /><testcase classname="backend.tests.agent_platform.test_ownership_output_feedback_real_data" name="test_other_output_boundary_differences_are_local_model_feedback[duplicate_fact]" time="0.002" /><testcase classname="backend.tests.agent_platform.test_ownership_output_feedback_real_data" name="test_other_output_boundary_differences_are_local_model_feedback[missing_primary]" time="0.002" /><testcase classname="backend.tests.agent_platform.test_ownership_output_feedback_real_data" name="test_other_output_boundary_differences_are_local_model_feedback[missing_scope]" time="0.002" /></testsuite></testsuites>

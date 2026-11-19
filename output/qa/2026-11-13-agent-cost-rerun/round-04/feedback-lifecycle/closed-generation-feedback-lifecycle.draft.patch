@@ -1,0 +1,564 @@
+--- a/backend/modules/agent_platform/test_generation_agent.py
++++ b/backend/modules/agent_platform/test_generation_agent.py
+@@ -18,7 +18,9 @@
+     _validate_generation_batch_output, prepare_test_case_batches,
+     validate_generation_case_uniqueness,
+ )
+-from .test_generation_escalation import validate_generation_scope_feedback
++from .test_generation_escalation import (validate_generation_scope_feedback,
++    generation_replan_problem_context, generation_replan_review_context,
++    generation_feedback_source_hash, generation_feedback_draft_targets)
+ from .test_generation_facts import bound_fact_ids
+ from .test_generation_review import (
+     _difference_identity, prepare_final_review_batches, postprocess_final_review_batch_item, refresh_final_review_input,
+@@ -188,14 +190,22 @@
+     return review.compose_review_context(context, input_payload=state["review"]["input"], state=state["review"]["state"])
+ 
+ 
+-def _problem(state, *, origin, input_hash, payload, fact_ids, batch_indexes, review_provenance=None):
+-    identity = action_state_hash([origin, input_hash, payload])
+-    state["problems"].setdefault(identity, {
+-        "problem_id": identity, "origin": origin, "input_hash": input_hash,
++def _problem(state, *, origin, input_hash, payload, fact_ids, batch_indexes, review_provenance=None, generation_provenance=None):
++    problem = {
++        "origin": origin, "input_hash": input_hash,
+         "fact_ids": sorted(set(fact_ids)), "generation_indexes": sorted(set(batch_indexes)),
+         "payload": deepcopy(payload),
+         **({"review_provenance": deepcopy(review_provenance)} if review_provenance is not None else {}),
+-    })
++        **({"generation_provenance": deepcopy(generation_provenance)} if generation_provenance is not None else {}),
++    }
++    identity = (action_state_hash({"origin": "generation_replan", **generation_replan_problem_context(problem)})
++                if generation_provenance is not None else action_state_hash([origin, input_hash, payload]))
++    problem["problem_id"] = identity
++    if generation_provenance is not None:
++        # 同源同一原子主张的新报告替代当前出处，原始专家回执仍完整保留。
++        state["problems"][identity] = problem
++    else:
++        state["problems"].setdefault(identity, problem)
+ 
+ 
+ def _current_problems(state):
+@@ -229,15 +239,157 @@
+                               "layout": state["generation_layout"]})
+ 
+ 
++
++def _generation_feedback_source_hash(state):
++    return generation_feedback_source_hash(state["planning"], state["effective_facts"], state["conflict_confirmations"])
++
++
++def _generation_feedback_draft_targets(state):
++    return generation_feedback_draft_targets(state["planning"])
++
++
++def _record_generation_feedback(state, item, normalized, generation_index):
++    """按报告内的原子issue登记，不以整批问题的共同存亡代替局部修复。"""
++    designs = {design["test_design_item_id"]: design for design in item["plan"]["test_design_items"]}
++    targets = _generation_feedback_draft_targets(state)
++    source_hash = _generation_feedback_source_hash(state)
++    for issue in normalized["planning_feedback"]["issues"]:
++        payload = deepcopy(normalized)
++        payload["planning_feedback"]["issues"] = [deepcopy(issue)]
++        fact_ids = sorted({identity for group in issue["scenario_groups"] for identity in group["fact_ids"]})
++        provenance = None
++        if issue["requested_change"] == "replan":
++            intents = sorted({designs[identity]["coverage_intent"]
++                              for group in issue["scenario_groups"] for identity in group["test_design_item_ids"]})
++            if source_hash is None or any(len(targets.get(intent, [])) != 1 for intent in intents):
++                raise ValueError("生成范围问题缺少唯一的当前来源及原子草案归属")
++            provenance = {
++                "source_hash": source_hash,
++                "reported_design_intents": {identity: designs[identity]["coverage_intent"]
++                    for group in issue["scenario_groups"] for identity in group["test_design_item_ids"]},
++                "draft_targets": [deepcopy(targets[intent][0]["identity"]) for intent in intents],
++            }
++        _problem(state, origin="generation", input_hash=action_state_hash(item), payload=payload,
++                 fact_ids=fact_ids, batch_indexes=[generation_index], generation_provenance=provenance)
++
++
++def _generation_replan_problems(state):
++    return [problem for problem in _current_problems(state) if "generation_provenance" in problem]
++
++
++def _generation_feedback_review_decisions(state, problem):
++    """回读包含完整原子报告的独立裁决，不把普通支持结论冒充本问题复核。"""
++    expected = generation_replan_review_context([problem])[0]
++    intents = {target["coverage_intent"] for target in problem["generation_provenance"]["draft_targets"]}
++    decisions = {}
++    for record in state["planning"]["route_review_revisions"]:
++        item = record["input"]
++        contexts = generation_replan_review_context(item.get("_planning_feedback", {}).get("downstream_problems", []))
++        if expected not in contexts:
++            continue
++        if record["input_hash"] != action_state_hash(item):
++            raise ValueError("原子生成问题的独立复核完整输入身份无效")
++        normalized = planning.postprocess_planning_support_decisions(None, {
++            "item_input": item, "item_output": record["output"],
++        })
++        designs = {design["test_design_item_index"]: design for design in item["missing_test_design_items"]}
++        for decision in normalized["decisions"]:
++            intent = designs[decision["test_design_item_index"]]["coverage_intent"]
++            if intent in intents:
++                decisions[intent] = {"review_input_hash": record["input_hash"],
++                    "decision": {key: deepcopy(value) for key, value in decision.items()
++                                 if key != "test_design_item_index"}}
++    return decisions
++
++
++def _generation_feedback_independently_supported(state, problem):
++    """仅独立复核能结案；生成器成功不能替代裁决。"""
++    decisions = _generation_feedback_review_decisions(state, problem)
++    return all(decisions.get(target["coverage_intent"], {}).get("decision", {}).get("disposition") == "supported"
++               for target in problem["generation_provenance"]["draft_targets"])
++
++
++def _generation_independent_support_reviews(state, item):
++    """把真实新裁决传入对应生成请求，独立复核后不要求模型改写问法才能重试。"""
++    source_hash = _generation_feedback_source_hash(state)
++    targets = _generation_feedback_draft_targets(state)
++    intents = {design["coverage_intent"] for design in item["plan"]["test_design_items"]}
++    problems = {}
++    for record in state["planning"]["route_review_revisions"]:
++        for problem in record["input"].get("_planning_feedback", {}).get("downstream_problems", []):
++            if "generation_provenance" in problem:
++                problems[problem["problem_id"]] = problem
++    proofs = []
++    for problem in problems.values():
++        provenance = problem["generation_provenance"]
++        if provenance["source_hash"] != source_hash or any(
++                len(targets.get(target["coverage_intent"], [])) != 1
++                or targets[target["coverage_intent"]][0]["identity"] != target
++                for target in provenance["draft_targets"]):
++            continue
++        if not intents.intersection(target["coverage_intent"] for target in provenance["draft_targets"]):
++            continue
++        if _generation_feedback_independently_supported(state, problem):
++            proofs.append({"problem_id": problem["problem_id"],
++                "issue_context": generation_replan_problem_context(problem),
++                "decisions": _generation_feedback_review_decisions(state, problem),
++                "evidence_role": "独立支持复核记录不是新增事实；测试用例仍须依据当前生效事实验收。"})
++    return sorted(proofs, key=lambda proof: proof["problem_id"])
++
++
++def _generation_feedback_support_selections(state):
++    """未评估报告沿当前完整意图目录定位，不能把历史位置当成本轮选择。"""
++    intents = {target["coverage_intent"] for problem in _generation_replan_problems(state)
++               for target in problem["generation_provenance"]["draft_targets"]}
++    return [{"module_index": item["module_index"], "test_design_item_indexes": indexes}
++            for item in state["planning"]["gap_inputs"]
++            if (indexes := [design["test_design_item_index"] for design in item["missing_test_design_items"]
++                            if design["coverage_intent"] in intents])]
++
++
++def _project_generation_feedback(state, problem, targets, source_hash):
++    """目标改变只使旧结论退役；保留的报告仍是待评估主张，不构成业务裁决。"""
++    generation_replan_review_context([problem])
++    provenance = problem["generation_provenance"]
++    if provenance["source_hash"] != source_hash:
++        return None
++    current_targets = []
++    for previous in provenance["draft_targets"]:
++        current = targets.get(previous["coverage_intent"], [])
++        if len(current) != 1 or current[0]["identity"] != previous:
++            return None
++        current_targets.append(deepcopy(current[0]))
++    intents = {target["coverage_intent"] for target in provenance["draft_targets"]}
++    if _generation_feedback_independently_supported(state, problem):
++        return None
++    matched = [index for index, item in enumerate(state["generation_inputs"])
++               if intents & {design["coverage_intent"] for design in item["plan"]["test_design_items"]}]
++    result = deepcopy(problem)
++    result["generation_indexes"] = matched
++    result["current_draft_origins"] = current_targets
++    return result
++
++
+ def _project_current_problems(state):
+     """领域状态只保存当前问题；历史结论由已有行动回执保留，不能因无关修复重复登记。"""
+     generation_hashes = {action_state_hash(item) for index, item in enumerate(state["generation_inputs"])
+                          if state["generation_records"][index] is None}
+-    state["problems"] = {key: value for key, value in state["problems"].items()
+-                         if (value["origin"] == "generation" and value["input_hash"] in generation_hashes)
+-                         or (value["origin"] == "preparation" and state["accepted_plan"] is not None
+-                             and state["effective_facts"] is not None and not state["generation_inputs"]
+-                             and value["input_hash"] == _preparation_identity(state))}
++    generation_replan_review_context(list(state["problems"].values()))
++    retained = {}
++    feedback = [value for value in state["problems"].values() if "generation_provenance" in value]
++    targets = _generation_feedback_draft_targets(state) if feedback else {}
++    source_hash = _generation_feedback_source_hash(state) if feedback else None
++    for key, value in state["problems"].items():
++        if "generation_provenance" in value:
++            projected = _project_generation_feedback(state, value, targets, source_hash)
++            if projected is not None:
++                retained[key] = projected
++        elif ((value["origin"] == "generation" and value["input_hash"] in generation_hashes)
++              or (value["origin"] == "preparation" and state["accepted_plan"] is not None
++                  and state["effective_facts"] is not None and not state["generation_inputs"]
++                  and value["input_hash"] == _preparation_identity(state))):
++            retained[key] = value
++    state["problems"] = retained
+     if state["review"] is None:
+         return
+     source, current = state["review"]["input"], state["review"]["state"]
+@@ -291,9 +443,12 @@
+     problems = _authority_problems(state)
+     unresolved = {item["module_index"]: set(item["test_design_item_indexes"])
+                   for item in plan["unresolved_design_selections"]}
++    for selection in _generation_feedback_support_selections(state):
++        unresolved.setdefault(selection["module_index"], set()).update(selection["test_design_item_indexes"])
+     for problem in problems:
+         for gap in problem["payload"]["design_support_gaps"]:
+             unresolved.setdefault(gap["module_index"], set()).add(gap["test_design_item_index"])
++    problems = [*problems, *_generation_replan_problems(state)]
+     selections = [{"module_index": index, "test_design_item_indexes": sorted(indexes)}
+                   for index, indexes in sorted(unresolved.items())]
+     requires_evidence = []
+@@ -358,19 +513,25 @@
+                 index for entry in [*reviewed_draft_gaps, *plan["unrouted_modules"]]
+                 for index in entry["planning_batch_indexes"]})
+             affected_fact_ids = {identity for problem in _current_problems(state)
+-                                 if problem["problem_id"] in structural_problem_ids for identity in problem["fact_ids"]}
++                                 if problem["problem_id"] in structural_problem_ids and "generation_provenance" not in problem
++                                 for identity in problem["fact_ids"]}
+             affected_draft_indexes = sorted(set(affected_draft_indexes) | {
+                 index for index, item in enumerate(state["planning"]["planning_inputs"])
+                 if any(fact["fact_id"] in affected_fact_ids for scope in item["planning_scopes"] for fact in scope["facts"])})
++            affected_draft_indexes = sorted(set(affected_draft_indexes) | {
++                target["planning_batch_index"] for problem in _generation_replan_problems(state)
++                for target in problem["current_draft_origins"]})
+             actions["revise_planning_draft"] = {
+-                "item_indexes": pending_draft_indexes or affected_draft_indexes, "problem_ids": structural_problem_ids,
++                "item_indexes": sorted(set(pending_draft_indexes) | set(affected_draft_indexes)),
++                "problem_ids": structural_problem_ids,
+             }
+             problems = _current_problems(state)
+             authority_gap = any(item["origin"] == "preparation" and item["payload"].get("kind") == "authority_support_gap"
+                                 for item in problems)
+             if (not authority_gap and plan["can_rebuild"]
+                     and (not plan["plan_available"] or plan["unrouted_module_indexes"])) or any(
+-                    item["origin"] in {"generation", "review"} and item["problem_id"] in structural_problem_ids
++                    item["origin"] in {"generation", "review"} and "generation_provenance" not in item
++                    and item["problem_id"] in structural_problem_ids
+                     for item in problems):
+                 actions["rebuild_business_plan"] = {"problem_ids": structural_problem_ids}
+         if plan["plan_available"] and plan["pending_route_indexes"]:
+@@ -379,7 +540,7 @@
+         if (support_scope["pending_gap_indexes"] or support_scope["unresolved_design_selections"]
+                 or support_scope["requires_additional_evidence"]):
+             actions["review_planning_route_gaps"] = support_scope
+-        if (plan["can_finish"] and state["accepted_plan"] is None
++        if (plan["can_finish"] and not _generation_replan_problems(state) and state["accepted_plan"] is None
+                 and generation_preflight is not None and generation_preflight["ready"]):
+             actions["accept_generation_plan"] = {}
+         if generation_preflight is not None and not generation_preflight["ready"]:
+@@ -418,7 +579,7 @@
+             actions["recheck_review_batch"] = {"batch_ids": list(reviewed["recheck_batch_ids"])}
+         if reviewed["can_review_all_cases"]:
+             actions["review_all_cases"] = {}
+-    if reviewed and reviewed["can_finish"] and state["accepted_plan"] is not None:
++    if reviewed and reviewed["can_finish"] and state["accepted_plan"] is not None and not _generation_replan_problems(state):
+         actions["finish_generation"] = {}
+     return actions
+ 
+@@ -463,8 +624,10 @@
+     issues = []
+     for problem in _current_problems(state):
+         fact_ids = set(problem["fact_ids"])
+-        draft_indexes = [index for index, item in enumerate(state["planning"]["planning_inputs"])
+-                         if fact_ids & {fact["fact_id"] for scope in item["planning_scopes"] for fact in scope["facts"]}]
++        draft_indexes = (sorted({target["planning_batch_index"] for target in problem["current_draft_origins"]})
++                         if "generation_provenance" in problem else
++                         [index for index, item in enumerate(state["planning"]["planning_inputs"])
++                          if fact_ids & {fact["fact_id"] for scope in item["planning_scopes"] for fact in scope["facts"]}])
+         issues.append({key: deepcopy(problem[key]) for key in ("problem_id", "origin", "generation_indexes", "fact_ids")}
+                       | {"planning_batch_indexes": draft_indexes,
+                          "reported_problem": _problem_payload_view(problem["payload"]), "details_available": True})
+@@ -611,7 +774,11 @@
+     _save(context, state)
+     # 当前完整状态由 SDK 的观察入口提供；行动回执只保留实际效果，避免无变化被当成修复成功。
+     return {"action": action_key, "changed": result.get("changed", planning_hash != action_state_hash(child.action_state)),
+-            "planning_versions": dict(zip(version_keys, after, strict=True)), "downstream_invalidated": before != after}
++            "planning_versions": dict(zip(version_keys, after, strict=True)), "downstream_invalidated": before != after,
++            "independently_reviewed_problem_ids": [problem["problem_id"] for problem in _generation_replan_problems(current)
++                if action_key == "review_planning_route_gaps"
++                and _generation_feedback_source_hash(state) == problem["generation_provenance"]["source_hash"]
++                and _generation_feedback_independently_supported(state, problem)]}
+ 
+ 
+ async def read_planning_evidence(context, arguments):
+@@ -927,6 +1094,9 @@
+     action["requests"] = []
+     for item in action["items"]:
+         request = _generation_request(item, guidance)
++        independent = _generation_independent_support_reviews(state, item)
++        if independent:
++            request.setdefault("_planning_feedback", {})["independent_support_reviews"] = independent
+         request_hash = action_state_hash(request)
+         if request_hash in state["generation_requests"]:
+             raise OutputValidationError("该生成请求已有处理记录，需根据实际问题调整规划/布局或提供新的具体修正建议")
+@@ -982,8 +1152,7 @@
+                      fact_ids=[fact["fact_id"] for fact in item["authoritative_facts"]], batch_indexes=[index])
+         elif output.get("result_type") == "planning_feedback":
+             normalized = validate_generation_scope_feedback(item, output)
+-            _problem(state, origin="generation", input_hash=action_state_hash(item), payload=normalized,
+-                     fact_ids=[fact["fact_id"] for fact in item["authoritative_facts"]], batch_indexes=[index])
++            _record_generation_feedback(state, item, normalized, index)
+         else:
+             # SDK 已使用同一完整后处理器验收；保留其标准化产物，不能把问题报告加入成功缓存。
+             normalized = _validate_generation_batch_output(source_input=item, output=output)
+@@ -1102,6 +1271,8 @@
+ 
+ def _resolved_output(context):
+     state = _state(context)
++    if _generation_replan_problems(state):
++        raise OutputValidationError("仍有生成范围问题尚未完成含原子报告的独立支持复核")
+     if state["accepted_plan"] is None or state["effective_facts"] is None or _pending(state["generation_records"]):
+         raise OutputValidationError("当前规划、权威判断或生成范围尚未全部验收")
+     plan = planning._resolved_output(_planning_context(context, state))
+--- a/backend/modules/agent_platform/test_generation_planning_agent.py
++++ b/backend/modules/agent_platform/test_generation_planning_agent.py
+@@ -406,6 +406,36 @@
+         entry["scope_ids"] = sorted({value for design in designs for value in design["scope_ids"]})
+         selected.append(entry)
+     return selected
++
++
++
++def _downstream_draft_feedback(state, index):
++    """下游问题只授权其真实原子主题，不把共同引用事实扩展成整批可改。"""
++    from .test_generation_escalation import generation_replan_review_context
++
++    problems = state.get("downstream_feedback", [])
++    generation_replan_review_context(problems)
++    designs = {}
++    for problem in problems:
++        if "generation_provenance" not in problem:
++            continue
++        for target in problem["current_draft_origins"]:
++            if target["planning_batch_index"] != index:
++                continue
++            record = state["planning_records"][index]
++            candidate = record["output"]["module_candidates"][target["module_candidate_index"]]
++            topic = candidate["coverage_topics"][target["coverage_topic_index"]]
++            identity = target["identity"]
++            if (identity["planning_input_hash"] != action_state_hash(state["planning_inputs"][index])
++                    or identity["module_candidate_name"] != candidate["name"]
++                    or identity["coverage_intent"] != coverage_topic_intent(topic)):
++                raise ValueError("下游修订授权不是当前完整草案的原子归属")
++            designs[identity["coverage_intent"]] = {"coverage_intent": identity["coverage_intent"]}
++    return [{"missing_test_design_items": [designs[key] for key in sorted(designs)]}] if designs else []
++
++
++def _draft_revision_feedback(state, index):
++    return [*_draft_route_feedback(state, index), *_downstream_draft_feedback(state, index)]
+ 
+ 
+ def _pending_draft_revisions(state: dict[str, Any]) -> list[dict[str, Any]]:
+@@ -988,12 +1018,14 @@
+ 
+ def prepare_draft_revision(context: ToolExecutionContext, arguments: dict[str, Any]) -> dict[str, Any]:
+     state = _state(context)
++    from .test_generation_escalation import validate_generation_replan_feedback
++    validate_generation_replan_feedback(context, state.get("downstream_feedback", []))
+     index = _index(arguments, len(state["planning_inputs"]))
+     item = deepcopy(state["planning_inputs"][index])
+     previous = state["planning_records"][index]
+     item["_planning_feedback"] = {"question": _question(arguments), "previous_draft": deepcopy(previous["output"]) if previous else None, "route_gaps": _draft_route_feedback(state, index)}
+-    item["_planning_feedback"]["protected_topics"] = _protected_draft_topics(previous["output"], item["_planning_feedback"]["route_gaps"]) if previous else []
+-    item["_planning_feedback"]["protected_candidates"] = _protected_draft_candidates(previous["output"], item["_planning_feedback"]["route_gaps"]) if previous else []
++    item["_planning_feedback"]["protected_topics"] = _protected_draft_topics(previous["output"], _draft_revision_feedback(state, index)) if previous else []
++    item["_planning_feedback"]["protected_candidates"] = _protected_draft_candidates(previous["output"], _draft_revision_feedback(state, index)) if previous else []
+     authority = _isolated_context(context).artifacts.get("planning_source_authority", {})
+     fact_ids = {fact["fact_id"] for scope in item["planning_scopes"] for fact in scope["facts"]}
+     known = {fact_id: deepcopy(change) for fact_id, change in authority.items() if fact_id in fact_ids}
+@@ -1006,14 +1038,16 @@
+ 
+ def apply_draft_revision(context: ToolExecutionContext, action: dict[str, Any], outputs: list[dict[str, Any]]) -> dict[str, Any]:
+     state = _check_action(context, action, outputs)
++    from .test_generation_escalation import validate_generation_replan_feedback
++    validate_generation_replan_feedback(context, state.get("downstream_feedback", []))
+     index = action["item_indexes"][0]
+     item = state["planning_inputs"][index]
+     try:
+         output = validate_business_plan_draft_output(_isolated_context(context), {"input_payload": item, "output": outputs[0]})
+         previous = state["planning_records"][index]
+-        protected = _protected_draft_topics(previous["output"], _draft_route_feedback(state, index)) if previous else []
++        protected = _protected_draft_topics(previous["output"], _draft_revision_feedback(state, index)) if previous else []
+         _validate_protected_draft_topics(output, protected)
+-        candidates = _protected_draft_candidates(previous["output"], _draft_route_feedback(state, index)) if previous else []
++        candidates = _protected_draft_candidates(previous["output"], _draft_revision_feedback(state, index)) if previous else []
+         _validate_protected_draft_candidates(output, candidates)
+     except OutputValidationError:
+         raise
+@@ -1052,8 +1086,11 @@
+     origins = coverage_group_origins(item, state["planning_records"], _planning_semantics(state),
+                                     context.action_input["evidence_catalog"], policy=context.confirmed_conflicts)
+     retained = dependencies.retained_designs(origins,
+-        affected_coverage_items=[design["coverage_intent"] for gap in route_gaps for design in gap["missing_test_design_items"]],
+-        affected_fact_ids=[fact_id for problem in state.get("downstream_feedback", []) for fact_id in problem["fact_ids"]],
++        affected_coverage_items=[*[design["coverage_intent"] for gap in route_gaps for design in gap["missing_test_design_items"]],
++            *[target["coverage_intent"] for problem in state.get("downstream_feedback", [])
++              if "generation_provenance" in problem for target in problem["generation_provenance"]["draft_targets"]]],
++        affected_fact_ids=[fact_id for problem in state.get("downstream_feedback", [])
++                          if "generation_provenance" not in problem for fact_id in problem["fact_ids"]],
+         affected_module_ids=[module_id(module["module_name"]) for module in unrouted])
+     if known_domains is not None or route_gaps or retained:
+         item["_planning_feedback"] = {
+@@ -1161,6 +1198,8 @@
+ 
+ def prepare_route_gap_review(context: ToolExecutionContext, arguments: dict[str, Any]) -> dict[str, Any]:
+     state = _state(context)
++    from .test_generation_escalation import validate_generation_replan_feedback
++    validate_generation_replan_feedback(context, state.get("downstream_feedback", []))
+     selections = arguments.get("design_selections") or []
+     if selections:
+         question = arguments.get("question")
+--- a/backend/modules/agent_platform/test_generation_planning.py
++++ b/backend/modules/agent_platform/test_generation_planning.py
+@@ -1570,7 +1570,13 @@
+         subject = support_input(item, design, policy=item.get("user_decision_context", {}))
+         # 这是领域的「同证据定向复核一次」门禁，不能混作实际模型请求缓存身份。
+         # 复核指令仍完整参与 support_input / planning_support_request_hash 的验收证明。
+-        subject.pop("_planning_feedback", None)
++        feedback = subject.pop("_planning_feedback", {})
++        from .test_generation_escalation import generation_replan_review_context
++        issues = [issue for issue in generation_replan_review_context(feedback.get("downstream_problems", []))
++                  if any(target["coverage_intent"] == design["coverage_intent"]
++                         for target in issue["draft_targets"])]
++        if issues:
++            subject["generation_issue_context"] = issues
+         identities.add(action_state_hash(subject))
+     return identities
+ 
+@@ -1587,6 +1593,8 @@
+     decisions: dict[int, dict[int, dict[str, Any]]] = {}
+ 
+     def accept(item, record):
++        from .test_generation_escalation import validate_generation_replan_feedback
++        validate_generation_replan_feedback(context, item.get("_planning_feedback", {}).get("downstream_problems", []))
+         input_hash = action_state_hash(item)
+         if record.get("input_hash") != input_hash:
+             raise ValueError("支持复核回执与完整输入不一致")
+--- a/backend/modules/agent_platform/test_generation_escalation.py
++++ b/backend/modules/agent_platform/test_generation_escalation.py
+@@ -90,6 +90,118 @@
+ })
+ 
+ 
++
++def generation_feedback_source_hash(planning_state, effective_facts, confirmations):
++    """反馈只对同一已治理来源生效；规划和生成位置不构成来源身份。"""
++    if planning_state is None or effective_facts is None:
++        return None
++    return action_state_hash({
++        "source_ref": planning_state["goal"]["source_ref"],
++        "source_semantics": planning_state["source_semantics"],
++        "source_authority": planning_state["source_authority"],
++        "effective_facts": effective_facts,
++        "confirmations": confirmations,
++    })
++
++
++def generation_feedback_draft_targets(planning_state):
++    """沿真实草案绑定完整原子意图；位置仅供当前执行，不参与稳定身份。"""
++    from .test_generation_planning import coverage_topic_intent
++
++    catalog = {}
++    for index, (item, record) in enumerate(zip(
++            planning_state["planning_inputs"], planning_state["planning_records"], strict=True)):
++        if record is None:
++            continue
++        input_hash = action_state_hash(item)
++        if record["input_hash"] != input_hash:
++            raise ValueError("生成反馈的草案来源与当前完整输入不一致")
++        for candidate_index, candidate in enumerate(record["output"]["module_candidates"]):
++            for topic_index, topic in enumerate(candidate["coverage_topics"]):
++                intent = coverage_topic_intent(topic)
++                identity = {
++                    "planning_input_hash": input_hash,
++                    "module_candidate_name": candidate["name"],
++                    "candidate_fact_ids": sorted(candidate["fact_ids"]),
++                    "actors": deepcopy(candidate["actors"]),
++                    "lifecycle": deepcopy(candidate["lifecycle"]),
++                    "coverage_intent": intent,
++                }
++                target = {"identity": identity,
++                          "planning_batch_index": index,
++                          "module_candidate_index": candidate_index,
++                          "coverage_topic_index": topic_index}
++                owners = catalog.setdefault(intent, {})
++                # 汇总器对同一候选内的同文原子意图保留首次主题，复用相同归属。
++                owners.setdefault(action_state_hash(identity), target)
++    return {intent: list(owners.values()) for intent, owners in catalog.items()}
++
++
++
++def generation_replan_problem_context(problem: dict[str, Any]) -> dict[str, Any]:
++    """平台原子问题的完整语义身份，原报告编号和批次位置只保留为历史出处。"""
++    report = problem["payload"]["planning_feedback"]
++    if len(report["issues"]) != 1 or report["issues"][0]["requested_change"] != "replan":
++        raise ValueError("原子重规划问题必须只包含一个replan issue")
++    provenance = problem["generation_provenance"]
++    if set(provenance) != {"source_hash", "draft_targets", "reported_design_intents"}:
++        raise ValueError("原子生成问题的来源协议不完整")
++    if (not isinstance(provenance["source_hash"], str) or len(provenance["source_hash"]) != 64
++            or any(value not in "0123456789abcdef" for value in provenance["source_hash"])):
++        raise ValueError("原子生成问题缺少完整来源摘要")
++    issue = deepcopy(report["issues"][0])
++    referenced = {identity for group in issue["scenario_groups"] for identity in group["test_design_item_ids"]}
++    if set(provenance["reported_design_intents"]) != referenced:
++        raise ValueError("原子生成问题的真实设计映射缺失或超出原报告")
++    groups = []
++    for group in issue.pop("scenario_groups"):
++        groups.append({"fact_ids": sorted(group["fact_ids"]), "condition": deepcopy(group["condition"]),
++            "coverage_intents": sorted({provenance["reported_design_intents"][identity]
++                                         for identity in group["test_design_item_ids"]})})
++    issue["scenario_groups"] = sorted(groups, key=action_state_hash)
++    targets = sorted(deepcopy(provenance["draft_targets"]), key=action_state_hash)
++    if (not targets or len(targets) != len({target["coverage_intent"] for target in targets})
++            or {target["coverage_intent"] for target in targets}
++            != {intent for group in groups for intent in group["coverage_intents"]}):
++        raise ValueError("原子问题的真实设计引用与草案归属不一致")
++    return {"source_hash": provenance["source_hash"], "issue": issue, "draft_targets": targets}
++
++
++def generation_replan_review_context(problems: list[dict[str, Any]]) -> list[dict[str, Any]]:
++    """同一原子问题只复核一次；问法、旧TD编号和生成布局不能制造新身份。"""
++    result = {}
++    for problem in problems:
++        payload = problem.get("payload", {})
++        if (problem.get("origin") != "generation" or payload.get("result_type") != "planning_feedback"
++                or not any(issue["requested_change"] == "replan" for issue in payload["planning_feedback"]["issues"])):
++            continue
++        context = generation_replan_problem_context(problem)
++        identity = action_state_hash({"origin": "generation_replan", **context})
++        if identity != problem["problem_id"]:
++            raise ValueError("原子生成问题的稳定身份与完整上下文不一致")
++        result[identity] = {"problem_id": identity, **context}
++    return [result[identity] for identity in sorted(result)]
++
++
++
++def validate_generation_replan_feedback(context, problems):
++    """复核的新问题必须来自平台当前完整来源和真实原子草案，不能自报身份刷新门禁。"""
++    contexts = generation_replan_review_context(problems)
++    if not contexts:
++        return
++    state = getattr(context, "action_state", None)
++    if not isinstance(state, dict) or not isinstance(state.get("source_authority"), dict):
++        raise ValueError("原子生成问题的复核缺少当前完整规划上下文")
++    source_hash = generation_feedback_source_hash(state, state["source_authority"]["result"], context.confirmed_conflicts)
++    targets = generation_feedback_draft_targets(state)
++    for issue in contexts:
++        if issue["source_hash"] != source_hash or any(
++                len(targets.get(target["coverage_intent"], [])) != 1
++                or targets[target["coverage_intent"]][0]["identity"] != target
++                for target in issue["draft_targets"]):
++            raise ValueError("生成问题不是当前来源及原子草案的真实问题上下文")
++
++
+ def report_generation_scope_problem(
+     _context: ToolExecutionContext,
+     arguments: dict[str, Any],

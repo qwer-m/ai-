@@ -1,0 +1,24 @@
+--- a/backend/modules/agent_platform/sdk_adapter.py
++++ b/backend/modules/agent_platform/sdk_adapter.py
+@@ -2145,8 +2145,19 @@
+     async def get_response(self, **kwargs):
+         return await self._model.get_response(**self._request(kwargs))
+ 
+-    async def stream_response(self, **kwargs):
+-        async for event in self._model.stream_response(**self._request(kwargs)):
++    async def stream_response(
++        self, system_instructions, input, model_settings, tools, output_schema,
++        handoffs, tracing, *, previous_response_id, conversation_id, prompt,
++    ):
++        # SDK 的流式入口使用位置参数；目录筛选仍通过同一份明确的请求字段完成。
++        request = self._request({
++            "system_instructions": system_instructions, "input": input,
++            "model_settings": model_settings, "tools": tools, "output_schema": output_schema,
++            "handoffs": handoffs, "tracing": tracing,
++            "previous_response_id": previous_response_id, "conversation_id": conversation_id,
++            "prompt": prompt,
++        })
++        async for event in self._model.stream_response(**request):
+             yield event
+ 
+     def get_retry_advice(self, request):

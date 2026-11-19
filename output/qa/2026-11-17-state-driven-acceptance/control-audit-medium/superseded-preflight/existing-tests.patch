@@ -1,0 +1,27 @@
+--- a/backend/tests/agent_platform/test_generation_review_contract_real_data.py
++++ b/backend/tests/agent_platform/test_generation_review_contract_real_data.py
+@@ -182,16 +182,17 @@
+         check(real, candidate)
+ 
+ 
+-def test_superseded_branch_requires_real_nonself_rule(real):
++def test_superseded_branch_keeps_primary_source_and_only_extra_related_ids(real):
+     candidate = cpu_candidate(real)
+     current = branch(candidate, "EV-0007")
+     current.update(disposition="superseded", case_ids=[])
+-    with pytest.raises(OutputValidationError, match="后续规则或批准"):
+-        check(real, candidate)
++    assert branch(check(real, candidate), "EV-0007")["related_evidence_ids"] == []
+     current["related_evidence_ids"] = ["EV-0007"]
+-    with pytest.raises(OutputValidationError, match="后续规则或批准"):
+-        check(real, candidate)
++    assert branch(check(real, candidate), "EV-0007")["related_evidence_ids"] == []
+     approved = next(item["evidence_id"] for item in real["payload"]["evidence_catalog"]["items"]
+                     if item["kind"] == "approved_decision" and item["evidence_id"].startswith("AP-17-"))
+-    current["related_evidence_ids"] = [approved]
+-    assert check(real, candidate)["source_checks"]
++    current["related_evidence_ids"] = ["EV-0007", approved]
++    assert branch(check(real, candidate), "EV-0007")["related_evidence_ids"] == [approved]
++    current["related_evidence_ids"] = ["不存在的来源"]
++    with pytest.raises(OutputValidationError, match="未知"):
++        check(real, candidate)

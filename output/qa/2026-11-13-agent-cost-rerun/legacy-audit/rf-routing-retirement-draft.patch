@@ -1,0 +1,174 @@
+--- a/backend/modules/agent_platform/test_generation_planning.py
++++ b/backend/modules/agent_platform/test_generation_planning.py
+@@ -782,11 +782,8 @@
+         {
+             "scope_id": item["scope_id"],
+             "facts": [
+-                {
+-                    **_planning_fact_model_view(dict(fact)),
+-                    "fact_ref": f"RF-{fact_index + 1:03d}",
+-                }
+-                for fact_index, fact in enumerate(item["facts"])
++                _planning_fact_model_view(dict(fact))
++                for fact in item["facts"]
+             ],
+         }
+         for item in items
+@@ -872,7 +869,7 @@
+         ) if raw_batch_payload_chars else 0.0,
+         "removed_module_fields": ["test_points"],
+         "removed_design_fields": ["test_point", "technique"],
+-        "model_fact_fields": ["fact_ref", "fact_id", "assertion"],
++        "model_fact_fields": ["fact_id", "assertion"],
+     }
+     return {
+         "items": items,
+@@ -926,13 +923,8 @@
+     ]
+     if not all(prepared_fact_ids) or len(prepared_fact_ids) != len(set(prepared_fact_ids)):
+         raise ValueError(f"规划路由输入 fact_id 为空或重复: scope_id={expected_scope_id}")
+-    prepared_fact_refs = [
+-        str(fact.get("fact_ref") or "").strip() for fact in prepared_facts
+-    ]
+-    uses_fact_refs = all(prepared_fact_refs)
+-    if uses_fact_refs and len(prepared_fact_refs) != len(set(prepared_fact_refs)):
+-        raise ValueError(f"规划路由输入 fact_ref 重复: scope_id={expected_scope_id}")
+-    fact_id_by_ref = dict(zip(prepared_fact_refs, prepared_fact_ids, strict=True))
++    if any("fact_ref" in fact for fact in prepared_facts):
++        raise ValueError("规划索引投影只接受完整 fact_id，不接受旧 fact_ref")
+     assignments = output.get("assignments")
+     if not isinstance(assignments, list):
+         raise ValueError("规划路由 assignments 必须是数组")
+@@ -943,22 +935,14 @@
+                 f"规划路由 assignment 必须是对象: index={assignment_index}"
+             )
+         assignment = dict(raw_assignment)
+-        fact_ref = str(assignment.get("fact_ref") or "").strip()
+-        submitted_fact_id = str(assignment.get("fact_id") or "").strip()
+-        if uses_fact_refs and fact_ref:
+-            fact_id = fact_id_by_ref.get(fact_ref, "")
+-        elif uses_fact_refs and submitted_fact_id in prepared_fact_ids:
+-            # agent_map 后处理结果会在后续合并工具中再次经过本函数；
+-            # 已恢复且仍属于当前 scope 的真实 fact_id 应保持幂等。
+-            fact_id = submitted_fact_id
+-        else:
+-            fact_id = submitted_fact_id
+-        if not fact_id or fact_id in assignments_by_fact_id:
++        if set(assignment) != {"fact_id", "module_routes"}:
++            raise ValueError("规划索引投影只接受完整 fact_id 与模块映射")
++        fact_id = assignment.get("fact_id")
++        if not isinstance(fact_id, str) or not fact_id or fact_id in assignments_by_fact_id:
+             raise ValueError(
+                 "规划路由必须逐条且仅路由当前 scope 的全部 fact_id: "
+-                f"scope_id={expected_scope_id}; fact_ref={fact_ref or None}"
++                f"scope_id={expected_scope_id}"
+             )
+-        assignment.pop("fact_ref", None)
+         assignment["fact_id"] = fact_id
+         raw_module_routes = assignment.get("module_routes")
+         if not isinstance(raw_module_routes, list) or not raw_module_routes:
+@@ -1097,17 +1081,12 @@
+     context: ToolExecutionContext,
+     arguments: dict[str, Any],
+ ) -> dict[str, Any]:
+-    """在单个路由实例完成时规范化输出并校验其真实输入边界。"""
++    """校验当前完整批次的索引投影，不解释旧单项或短引用协议。"""
+ 
+     del context
+     prepared = dict(arguments.get("item_input") or {})
+     raw_output = dict(arguments.get("item_output") or {})
+-    if "scopes" in prepared:
+-        return _normalize_planning_scope_route_batch(
+-            prepared=prepared,
+-            raw_output=raw_output,
+-        )
+-    return _normalize_planning_scope_route(
++    return _normalize_planning_scope_route_batch(
+         prepared=prepared,
+         raw_output=raw_output,
+     )
+@@ -1118,14 +1097,9 @@
+     prepared_items: list[Any],
+     route_records: list[Any],
+ ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+-    """把模型批次恢复为既有的逐 scope 路由数据流。"""
+-
+-    if not prepared_items or "scopes" not in dict(prepared_items[0] or {}):
+-        return (
+-            [dict(item) for item in prepared_items],
+-            [dict(record) for record in route_records],
+-        )
+-    if len(prepared_items) != len(route_records):
++    """把显式编号的当前批次展开为逐 scope 索引，供共享完整性校验。"""
++
++    if not prepared_items or len(prepared_items) != len(route_records):
+         raise ValueError("规划路由批次结果数量不一致")
+ 
+     expanded_items: list[dict[str, Any]] = []
+@@ -1135,7 +1109,7 @@
+     ):
+         prepared = dict(raw_prepared or {})
+         record = dict(raw_record or {})
+-        if int(record.get("item_index", batch_index)) != batch_index:
++        if type(record.get("item_index")) is not int or record["item_index"] != batch_index:
+             raise ValueError(f"规划路由批次记录顺序不一致: index={batch_index}")
+         normalized = _normalize_planning_scope_route_batch(
+             prepared=prepared,
+@@ -1210,7 +1184,7 @@
+     for item_index, (prepared, record) in enumerate(zip(prepared_items, route_records)):
+         if not isinstance(record, dict):
+             raise ValueError(f"规划路由记录必须是对象: index={item_index}")
+-        if int(record.get("item_index", item_index)) != item_index:
++        if type(record.get("item_index")) is not int or record["item_index"] != item_index:
+             raise ValueError(f"规划路由记录顺序不一致: index={item_index}")
+         output = _normalize_planning_scope_route(
+             prepared=dict(prepared),
+--- a/backend/modules/agent_platform/test_generation_schemas.py
++++ b/backend/modules/agent_platform/test_generation_schemas.py
+@@ -445,24 +445,6 @@
+     "required": ["routes"],
+     "additionalProperties": False,
+ }
+-
+-PLANNING_SCOPE_ROUTING_AGENT_OUTPUT_SCHEMA = deepcopy(
+-    PLANNING_SCOPE_ROUTING_BATCH_OUTPUT_SCHEMA
+-)
+-_planning_route_agent_assignment_schema = (
+-    PLANNING_SCOPE_ROUTING_AGENT_OUTPUT_SCHEMA["properties"]["routes"]["items"]
+-    ["properties"]["assignments"]["items"]
+-)
+-_planning_route_agent_assignment_schema["properties"].pop("fact_id")
+-_planning_route_agent_assignment_schema["properties"]["fact_ref"] = {
+-    "type": "string",
+-    "pattern": "^RF-[0-9]{3,}$",
+-}
+-_planning_route_agent_assignment_schema["required"] = [
+-    "fact_ref",
+-    "module_routes",
+-]
+-
+ 
+ # 归属只由业务边界决定；事实到测试意图由独立支持审查承担。
+ BUSINESS_MODULE_OWNERSHIP_AGENT_OUTPUT_SCHEMA = deepcopy(PLANNING_SCOPE_ROUTING_BATCH_OUTPUT_SCHEMA)
+--- a/backend/modules/agent_platform/test_generation_workflow.py
++++ b/backend/modules/agent_platform/test_generation_workflow.py
+@@ -38,7 +38,6 @@
+     submit_business_plan,
+     validate_business_plan_output,
+     validate_business_plan_draft_output,
+-    postprocess_planning_scope_routing_item,
+     postprocess_planning_route_repair_item,
+ )
+ 
+@@ -480,11 +479,6 @@
+     from .planning_dependencies import postprocess_ownership_item
+     registry.register("testing.postprocess_planning_ownership_item", postprocess_ownership_item, cache_safe=True)
+     registry.register(
+-        "testing.postprocess_planning_scope_routing_item",
+-        postprocess_planning_scope_routing_item,
+-        cache_safe=True,
+-    )
+-    registry.register(
+         "testing.postprocess_planning_route_repair_item",
+         postprocess_planning_route_repair_item,
+         cache_safe=True,
