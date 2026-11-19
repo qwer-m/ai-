@@ -7,6 +7,14 @@ export type AgentRunExecutionLimits = {
   max_total_tokens?: number;
 };
 
+export type GenerationRunInput = {
+  requirement: string;
+  requirement_doc_id: number | null;
+  case_budget: number;
+  batch_case_limit: number;
+  disable_result_cache?: boolean;
+};
+
 export type AgentDefinition = {
   id: number;
   // 全局内置模板不绑定具体项目；项目自定义覆盖才有 project_id。
@@ -67,7 +75,7 @@ export type WorkflowGraphDefinition = {
   display_stages: WorkflowDisplayStage[];
 };
 
-export type AgentNetworkDefinition = {
+export type AgentProgramDefinition = {
   execution_mode: 'agent_network';
   entry_agent_key: string;
   input_schema: Record<string, unknown>;
@@ -76,7 +84,7 @@ export type AgentNetworkDefinition = {
   required_artifact_key: string | null;
 };
 
-export type AgentWorkflowDefinition = WorkflowGraphDefinition | AgentNetworkDefinition;
+export type AgentWorkflowDefinition = WorkflowGraphDefinition | AgentProgramDefinition;
 
 export type AgentWorkflow = {
   id: number;
@@ -92,6 +100,28 @@ export type AgentWorkflow = {
   updated_at: string;
 };
 
+export type GenerationDomainProjection = {
+  domain: 'test_generation';
+  schema_version: 4;
+  completed: boolean;
+  versions: {
+    schema_version: number;
+    coverage_version: number;
+    cases_version: number;
+  };
+  progress: {
+    coverage_items: number;
+    covered_items: number;
+    cases: number;
+    target_cases: number;
+    open_issues: number;
+    pending_human: number;
+    review_checked_cases: number;
+    review_current: boolean;
+  };
+  candidate_case_count: number;
+};
+
 export type AgentNodeRun = {
   id: number;
   node_key: string;
@@ -100,6 +130,7 @@ export type AgentNodeRun = {
   status: RunStatus;
   attempt: number;
   input_payload: Record<string, unknown>;
+  input_payload_is_reference: boolean;
   output_payload: Record<string, unknown>;
   sdk_state: Record<string, unknown>;
   error_message: string;
@@ -119,9 +150,31 @@ export type AgentApproval = {
   decided_at: string | null;
 };
 
+export type AgentRunEvent = {
+  id: number;
+  run_id: number;
+  node_run_id: number | null;
+  sequence: number;
+  event_type: string;
+  payload: Record<string, unknown>;
+  created_at: string;
+};
+
+export type AgentRunEventPage = {
+  items: AgentRunEvent[];
+  after_sequence: number;
+  next_sequence: number;
+  has_more: boolean;
+};
+
 export type AgentRun = {
   id: number;
   run_attempt: number;
+  input_hash: string | null;
+  logical_task_id: string | null;
+  attempt_id: string | null;
+  checkpoint_schema_version: number | null;
+  execution_contract_hash: string | null;
   project_id: number;
   workflow_definition_id: number;
   status: RunStatus;

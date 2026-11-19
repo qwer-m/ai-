@@ -1,7 +1,11 @@
 """与执行方式无关的 Agent 重试预算和断点状态。"""
 
 from dataclasses import dataclass, field
+from copy import deepcopy
+import re
 from typing import Any
+
+from openai import APIConnectionError, APITimeoutError, InternalServerError, RateLimitError
 
 
 TRANSIENT_ATTEMPT_BUDGET = 4
@@ -11,6 +15,105 @@ CONCURRENCY_PRESSURE_FAILURE_KINDS = frozenset(
 MODEL_ROUTE_HEALTH_FAILURE_KINDS = frozenset(
     {*CONCURRENCY_PRESSURE_FAILURE_KINDS, "empty_output", "json_syntax", "output_degeneration"}
 )
+
+
+@dataclass
+class AdaptiveConcurrency:
+    """DAG 与受管会话共享压力控制；只决定准入上限，不执行重试。"""
+
+    max_concurrency: int
+    min_concurrency: int
+    pressure_threshold: int
+    recovery_successes: int
+    effective_concurrency: int
+    pressure_failures: int = 0
+    successful_since_adjustment: int = 0
+
+    @classmethod
+    def restore(cls, *, max_concurrency: int, min_concurrency: int,
+                pressure_threshold: int, recovery_successes: int,
+                checkpoint: dict[str, Any] | None = None) -> "AdaptiveConcurrency":
+        if any(type(value) is not int or value < 1 for value in
+               (max_concurrency, min_concurrency, pressure_threshold, recovery_successes)):
+            raise ValueError("并发控制参数必须是正整数")
+        floor = min(max_concurrency, min_concurrency)
+        saved = checkpoint or {}
+        effective = saved.get("effective_concurrency", max_concurrency)
+        pressure = saved.get("pressure_failures", 0)
+        successes = saved.get("successful_since_adjustment", 0)
+        if any(type(value) is not int or value < 0 for value in (effective, pressure, successes)):
+            raise ValueError("并发控制检查点必须是非负整数")
+        return cls(max_concurrency, floor, pressure_threshold, recovery_successes,
+                   min(max_concurrency, max(floor, effective)), pressure, successes)
+
+    def snapshot(self) -> dict[str, int]:
+        return {"max_concurrency": self.max_concurrency,
+                "min_concurrency": self.min_concurrency,
+                "effective_concurrency": self.effective_concurrency,
+                "pressure_failures": self.pressure_failures,
+                "successful_since_adjustment": self.successful_since_adjustment}
+
+    def _adjust(self, target: int, reason: str, failure_kind: str = "") -> dict[str, Any] | None:
+        target = min(self.max_concurrency, max(self.min_concurrency, target))
+        if target == self.effective_concurrency:
+            return None
+        previous = self.effective_concurrency
+        self.effective_concurrency = target
+        self.pressure_failures = self.successful_since_adjustment = 0
+        return {"from": previous, "to": target, "reason": reason, "failure_kind": failure_kind}
+
+    def record_success(self) -> dict[str, Any] | None:
+        self.successful_since_adjustment += 1
+        if self.successful_since_adjustment >= self.recovery_successes:
+            # 一个成功不能抹掉窗口内限流；稳定成功窗口结束才解除压力。
+            self.pressure_failures = 0
+            if self.effective_concurrency < self.max_concurrency:
+                return self._adjust(self.effective_concurrency + 1, "success_recovery")
+            self.successful_since_adjustment = 0
+        return None
+
+    def record_failure(self, failure_kind: str | None, *, retryable: bool = True) -> dict[str, Any] | None:
+        if not retryable or failure_kind not in CONCURRENCY_PRESSURE_FAILURE_KINDS:
+            return None
+        self.successful_since_adjustment = 0
+        self.pressure_failures += 1
+        if self.pressure_failures >= self.pressure_threshold:
+            return self._adjust(self.effective_concurrency - 1, "upstream_pressure", failure_kind)
+        return None
+
+
+def restorable_sdk_state(node_run: Any, *, destination_run_id: int | None = None) -> dict[str, Any]:
+    """同运行重试与跨运行续跑共用恢复边界；历史大诊断只在原节点保存。"""
+    state = {key: value for key, value in dict(node_run.sdk_state or {}).items()
+             if key not in {"model_requests", "tool_calls", "tool_observations", "error_diagnostic", "checkpoint_restore"}}
+    if isinstance(state.get("action_checkpoint"), dict):
+        from .checkpoint_storage import compact_checkpoint
+
+        state["action_checkpoint"] = compact_checkpoint(node_run)
+        if destination_run_id is not None and destination_run_id != node_run.run_id:
+            # 新 Run 重新绑定消费游标；历史预算和已用消费仍完整继承为基线。
+            state.pop("action_usage_recorded", None)
+    # map 的工作项和修复预算仍是可变控制数据，不能与旧尝试共享 Python 对象。
+    return deepcopy(state)
+
+
+def model_transport_failure_kind(error: Exception) -> str | None:
+    """批次收敛与节点重试共用同一份上游暂态故障分类。"""
+
+    if isinstance(error, (TimeoutError, APITimeoutError)):
+        return "timeout"
+    if isinstance(error, (ConnectionError, APIConnectionError)):
+        return "connection"
+    if isinstance(error, RateLimitError):
+        return "rate_limit"
+    if isinstance(error, InternalServerError):
+        return "upstream_server"
+    status_code = getattr(error, "status_code", None)
+    if status_code == 429:
+        return "rate_limit"
+    if isinstance(status_code, int) and status_code >= 500:
+        return "upstream_server"
+    return None
 
 
 def content_attempt_budget(*, failure_kind: str, configured_max_attempts: int) -> int:
@@ -42,15 +145,18 @@ class RetryAttemptState:
     attempt: int = 0
     content_failure_counts: dict[str, int] = field(default_factory=dict)
     transient_failure_count: int = 0
+    transient_failure_streak: int = 0
+    transient_progress_token: str | None = None
     route_health_failure_count: int = 0
     capability_fallback_count: int = 0
     server_output_schema_disabled: bool = False
-    model_thinking_disabled: bool = False
     last_failure_kind: str = ""
     retry_exhausted: bool = False
 
     @classmethod
     def restore(cls, checkpoint: dict[str, Any]) -> "RetryAttemptState":
+        if not checkpoint:
+            return cls()
         counts = {
             str(key): max(0, int(value))
             for key, value in dict(checkpoint.get("content_failure_counts") or {}).items()
@@ -58,19 +164,24 @@ class RetryAttemptState:
         transient_count = max(0, int(checkpoint.get("transient_failure_count") or 0))
         route_count = checkpoint.get("route_health_failure_count")
         if route_count is None:
-            # 旧检查点未单列路由计数，历史失败仍计入同一预算。
-            route_count = transient_count + sum(
-                count for kind, count in counts.items()
-                if kind in MODEL_ROUTE_HEALTH_FAILURE_KINDS
-            )
+            raise ValueError("重试检查点缺少 route_health_failure_count")
+        if "transient_failure_streak" not in checkpoint or "transient_progress_token" not in checkpoint:
+            raise ValueError("重试检查点缺少当前暂态进度字段")
+        streak = checkpoint["transient_failure_streak"]
+        token = checkpoint["transient_progress_token"]
+        if type(streak) is not int or not 0 <= streak <= transient_count:
+            raise ValueError("暂态局部失败次数必须是非负整数且不能超过累计次数")
+        if token is not None:
+            cls._validate_progress_token(token)
         return cls(
             attempt=max(0, int(checkpoint.get("item_attempt") or 0)),
             content_failure_counts=counts,
             transient_failure_count=transient_count,
+            transient_failure_streak=streak,
+            transient_progress_token=token,
             route_health_failure_count=max(0, int(route_count)),
             capability_fallback_count=max(0, int(checkpoint.get("capability_fallback_count") or 0)),
             server_output_schema_disabled=bool(checkpoint.get("server_output_schema_disabled")),
-            model_thinking_disabled=bool(checkpoint.get("model_thinking_disabled")),
             last_failure_kind=str(checkpoint.get("last_failure_kind") or checkpoint.get("failure_kind") or ""),
             retry_exhausted=bool(checkpoint.get("retry_exhausted")),
         )
@@ -80,13 +191,31 @@ class RetryAttemptState:
             "content_failure_counts": dict(self.content_failure_counts),
             "content_failure_count": sum(self.content_failure_counts.values()),
             "transient_failure_count": self.transient_failure_count,
+            "transient_failure_streak": self.transient_failure_streak,
+            "transient_progress_token": self.transient_progress_token,
             "route_health_failure_count": self.route_health_failure_count,
             "capability_fallback_count": self.capability_fallback_count,
             "server_output_schema_disabled": self.server_output_schema_disabled,
-            "model_thinking_disabled": self.model_thinking_disabled,
             "last_failure_kind": self.last_failure_kind,
             "retry_exhausted": self.retry_exhausted,
         }
+
+    @staticmethod
+    def _validate_progress_token(token: str) -> None:
+        if not isinstance(token, str) or re.fullmatch(r"[0-9a-f]{64}", token) is None:
+            raise ValueError("恢复进度必须使用完整的已验收内容摘要")
+
+    def observe_progress(self, progress_token: str) -> bool:
+        """仅新验收进度开启暂态窗口；首个摘要只登记基线，其他失败预算保持原值。"""
+        self._validate_progress_token(progress_token)
+        previous = self.transient_progress_token
+        if previous == progress_token:
+            return False
+        self.transient_progress_token = progress_token
+        if previous is None:
+            return False
+        self.transient_failure_streak = 0
+        return True
 
     def require_retry_budget(self, *, configured_max_attempts: int) -> None:
         """续跑沿用原候选预算，只有重新生成才开始新预算。"""
@@ -97,7 +226,7 @@ class RetryAttemptState:
                 failure_kind=self.last_failure_kind, configured_max_attempts=configured_max_attempts,
             )
         if self.last_failure_kind in CONCURRENCY_PRESSURE_FAILURE_KINDS:
-            exhausted = exhausted or self.transient_failure_count >= max(configured_max_attempts, TRANSIENT_ATTEMPT_BUDGET)
+            exhausted = exhausted or self.transient_failure_streak >= max(configured_max_attempts, TRANSIENT_ATTEMPT_BUDGET)
         if exhausted:
             raise RuntimeError("该候选已耗尽重试预算；续跑保留原预算，重新生成才开始新预算")
 
@@ -108,14 +237,13 @@ class RetryAttemptState:
         retryable: bool,
         is_content_error: bool,
         configured_max_attempts: int,
+        stop_on_failure: bool = False,
     ) -> RetryDecision:
         self.last_failure_kind = failure_kind
         capability_changed = False
-        if failure_kind == "server_schema_unsupported" and not self.server_output_schema_disabled:
+        if (not stop_on_failure and failure_kind == "server_schema_unsupported"
+                and not self.server_output_schema_disabled):
             self.server_output_schema_disabled = True
-            capability_changed = True
-        elif failure_kind == "empty_output" and not self.model_thinking_disabled:
-            self.model_thinking_disabled = True
             capability_changed = True
 
         if retryable and failure_kind in MODEL_ROUTE_HEALTH_FAILURE_KINDS:
@@ -131,8 +259,11 @@ class RetryAttemptState:
             ) - count)
         elif retryable and failure_kind != "server_schema_unsupported":
             self.transient_failure_count += 1
-            remaining = max(0, max(configured_max_attempts, TRANSIENT_ATTEMPT_BUDGET) - self.transient_failure_count)
+            self.transient_failure_streak += 1
+            remaining = max(0, max(configured_max_attempts, TRANSIENT_ATTEMPT_BUDGET) - self.transient_failure_streak)
         else:
+            remaining = 0
+        if stop_on_failure:
             remaining = 0
         self.retry_exhausted = not (retryable and remaining > 0)
         return RetryDecision(

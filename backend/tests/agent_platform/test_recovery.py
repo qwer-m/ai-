@@ -75,6 +75,9 @@ def test_recovery_orders_only_run_ids_before_loading_large_json_rows(monkeypatch
     monkeypatch.setattr(recovery, "SessionLocal", lambda: db)
     monkeypatch.setattr(recovery, "AgentRunRepository", lambda current_db: repository)
     monkeypatch.setattr(recovery, "start_agent_run_worker", dispatched.append)
+    requested = []
+    monkeypatch.setattr(recovery, "prepare_agent_run_dispatch", lambda *args, **kwargs: requested.append(kwargs))
+    monkeypatch.setattr(recovery, "recover_pending_agent_dispatches", lambda **kwargs: [])
 
     result = recovery.recover_expired_agent_runs(limit=20)
 
@@ -83,6 +86,7 @@ def test_recovery_orders_only_run_ids_before_loading_large_json_rows(monkeypatch
         "status": "completed",
         "recovered_run_ids": [27],
         "expired_run_ids": [],
+        "pending_dispatched_run_ids": [],
     }
     assert db.run.status == "pending"
     assert db.run.task_id is None
@@ -100,8 +104,12 @@ def test_recovery_orders_only_run_ids_before_loading_large_json_rows(monkeypatch
     ]
     assert db.commit_count == 1
     assert dispatched == [27]
+    assert requested == [{"reason": "expired_lease", "new_cycle": True}]
     assert db.closed is True
-    assert repository.node_finalizations == []
+    assert len(repository.node_finalizations) == 1
+    assert repository.node_finalizations[0]["run_id"] == 27
+    assert repository.node_finalizations[0]["status"] == "failed"
+    assert "租约已过期" in repository.node_finalizations[0]["error_message"]
 
 
 def test_recovery_marks_run_failed_when_global_deadline_has_expired(monkeypatch) -> None:
@@ -111,15 +119,10 @@ def test_recovery_marks_run_failed_when_global_deadline_has_expired(monkeypatch)
     }
     repository = _FakeRepository(db)
     dispatched: list[int] = []
-    pruned_run_ids: list[int] = []
     monkeypatch.setattr(recovery, "SessionLocal", lambda: db)
     monkeypatch.setattr(recovery, "AgentRunRepository", lambda current_db: repository)
     monkeypatch.setattr(recovery, "start_agent_run_worker", dispatched.append)
-    monkeypatch.setattr(
-        recovery,
-        "prune_terminal_run_history",
-        lambda current_repo, run: pruned_run_ids.append(run.id),
-    )
+    monkeypatch.setattr(recovery, "recover_pending_agent_dispatches", lambda **kwargs: [])
 
     result = recovery.recover_expired_agent_runs(limit=20)
 
@@ -127,6 +130,7 @@ def test_recovery_marks_run_failed_when_global_deadline_has_expired(monkeypatch)
         "status": "completed",
         "recovered_run_ids": [],
         "expired_run_ids": [27],
+        "pending_dispatched_run_ids": [],
     }
     assert db.run.status == "failed"
     assert db.run.finished_at is not None
@@ -139,7 +143,6 @@ def test_recovery_marks_run_failed_when_global_deadline_has_expired(monkeypatch)
             "payload": {"reason": "deadline_expired"},
         }
     ]
-    assert pruned_run_ids == [27]
     assert dispatched == []
     assert repository.node_finalizations == [{
         "run_id": 27,

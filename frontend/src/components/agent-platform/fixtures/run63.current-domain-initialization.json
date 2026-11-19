@@ -1,0 +1,156 @@
+{
+  "provenance": {
+    "kind": "current_domain_initializer_cpu_only_on_actual_run63_source",
+    "source_run_id": 63,
+    "source_run_status": "failed",
+    "source_document_id": 287,
+    "source_content_hash": "3e9659e0c2fb3d4f4c30774b3212109969e528e5a2ea4d776dd418226fb7b1d3",
+    "source_input_sha256": "c01aa80e2c24d9f590a045d14256a3397d7b24595e820d1b4009cce8f9fd682d",
+    "current_input_sha256": "4518f8cf9383d0ba7381829914e86e9c6c9fb5d5f067a710840eaeccb747958c",
+    "current_module_sha256": "8e77ad298848fb57af92cdeb31841550349ac8a60b25a71e1fccc67e28e5889d",
+    "execution": "当前initialize_generation_state与observe_generation_state；只读事务，结束后回滚",
+    "database_writes": 0,
+    "model_requests": 0,
+    "old_domain_state_migrated": false,
+    "online_generation_accepted": false,
+    "new_business_or_model_results": false,
+    "approved_decisions_count": 3,
+    "evidence_catalog_items": 38,
+    "state_domain_sha256": "f75f29eb7ec203dc54234ee539204ae4e6709bf6496ad5f609305e791d44e5ce",
+    "sql_commands": {
+      "SELECT": 9
+    }
+  },
+  "input": {
+    "requirement": "",
+    "requirement_doc_id": 287,
+    "case_budget": 70,
+    "batch_case_limit": 20
+  },
+  "projection": {
+    "domain": "test_generation",
+    "schema_version": 4,
+    "completed": false,
+    "versions": {
+      "schema_version": 4,
+      "coverage_version": 0,
+      "cases_version": 0
+    },
+    "progress": {
+      "coverage_items": 0,
+      "covered_items": 0,
+      "cases": 0,
+      "target_cases": 70,
+      "open_issues": 0,
+      "pending_human": 0,
+      "review_checked_cases": 0,
+      "review_current": false
+    },
+    "candidate_case_count": 0
+  },
+  "observation": {
+    "progress": {
+      "coverage_items": 0,
+      "covered_items": 0,
+      "cases": 0,
+      "target_cases": 70,
+      "open_issues": 0,
+      "pending_human": 0,
+      "review_checked_cases": 0,
+      "review_current": false
+    },
+    "versions": {
+      "schema_version": 4,
+      "coverage_version": 0,
+      "cases_version": 0
+    },
+    "completed": false,
+    "can_finish": false,
+    "available_actions": {
+      "read_source": {
+        "evidence_ids": [
+          "EV-0001",
+          "EV-0002",
+          "EV-0003",
+          "EV-0004",
+          "EV-0005",
+          "EV-0006",
+          "EV-0007",
+          "EV-0008",
+          "EV-0009",
+          "EV-0010",
+          "EV-0011",
+          "EV-0012",
+          "EV-0013",
+          "EV-0014",
+          "EV-0015",
+          "EV-0016",
+          "EV-0017",
+          "EV-0018",
+          "EV-0019",
+          "EV-0020",
+          "EV-0021",
+          "EV-0022",
+          "EV-0023",
+          "EV-0024",
+          "EV-0025",
+          "EV-0026",
+          "EV-0027",
+          "EV-0028",
+          "EV-0029",
+          "EV-0030",
+          "EV-0031",
+          "EV-0032",
+          "EV-0033",
+          "EV-0034",
+          "EV-0035",
+          "AP-13-b9f87821f906b0d1fe55ee3489cec2686b2cf2f2840cdfa63a8713c78a6f34ef",
+          "AP-13-02d5c42c2626ff787b9e2994455f59e94f199cb40adb10b2decfdcacc88a09fe",
+          "AP-15-19368aaf99c89516553223307d5c9dc3b8e618e5547c3b9bca9c34933b50269a"
+        ],
+        "max_chars": 60000
+      },
+      "retrieve_context": {},
+      "view_source_image": {
+        "page_numbers": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14
+        ]
+      },
+      "commit_coverage_plan": {
+        "expected_version": 0
+      },
+      "report_issue": {
+        "case_ids": [],
+        "coverage_ids": []
+      }
+    }
+  },
+  "protected_run_before": {
+    "id": 63,
+    "status": "failed",
+    "input_hash": "ee295144e575bf50928db41b33c9ed92ea335c4f7fa8f415d0c16821ba3e0cd6",
+    "context_hash": "a51a77b174351fca192ef39e91fdee74dabf24667cfe3cb5aa1cbcd3fce0ca69",
+    "output_hash": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"
+  },
+  "protected_run_after": {
+    "id": 63,
+    "status": "failed",
+    "input_hash": "ee295144e575bf50928db41b33c9ed92ea335c4f7fa8f415d0c16821ba3e0cd6",
+    "context_hash": "a51a77b174351fca192ef39e91fdee74dabf24667cfe3cb5aa1cbcd3fce0ca69",
+    "output_hash": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"
+  },
+  "data_sha256": "162eaa0af71f43585acaf8ef8ecdcbf1d6e6938fcefa79d055e142738ee98ff0"
+}

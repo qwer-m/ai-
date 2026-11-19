@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from core.db.model_defs import (
     AgentApproval,
+    AgentContextRecord,
     AgentDefinition,
     AgentNodeRun,
     AgentRun,
@@ -92,6 +93,11 @@ class ProjectRepository:
         tool_ids = self.db.query(AgentToolDefinition.id).filter(
             AgentToolDefinition.project_id == project_id
         )
+        context_records = self.db.query(AgentContextRecord).filter(AgentContextRecord.project_id == project_id)
+        context_records.filter(AgentContextRecord.replaced_by_id.is_not(None)).update(
+            {AgentContextRecord.replaced_by_id: None}, synchronize_session=False,
+        )
+        context_records.delete(synchronize_session=False)
         self.db.query(AgentApproval).filter(
             AgentApproval.run_id.in_(run_ids)
         ).delete(synchronize_session=False)

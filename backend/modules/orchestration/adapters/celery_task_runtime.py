@@ -16,8 +16,9 @@ class CeleryTaskRuntime(TaskRuntimePort):
     def __init__(self, app=celery_app) -> None:
         self._app = app
 
-    def dispatch(self, *, task_name: str, kwargs: dict[str, Any] | None = None) -> str:
-        result = self._app.send_task(task_name, kwargs=kwargs or {})
+    def dispatch(self, *, task_name: str, kwargs: dict[str, Any] | None = None, task_id: str | None = None) -> str:
+        options = {"task_id": task_id} if task_id is not None else {}
+        result = self._app.send_task(task_name, kwargs=kwargs or {}, **options)
         return str(result.id)
 
     def get_status(self, *, task_id: str) -> dict[str, Any]:

@@ -109,7 +109,9 @@ def test_user_config_follow_main_reuses_credentials_with_independent_review_mode
         client = get_client_for_user(1, db)
 
         assert client.review_model == "deepseek-v4-flash"
-        assert client.review_provider is None
+        assert client.review_provider is not None
+        assert client.review_provider.model == "deepseek-v4-flash"
+        assert client.review_provider.base_url == "https://new-api.example/v1"
         assert client.turbo_model == ""
         assert client.select_model("req", "review") == "deepseek-v4-flash"
         assert client.select_model("req", "compression") == "glm-5.1"

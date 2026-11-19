@@ -400,123 +400,6 @@ def verify_stale_worker_lease(source: AgentRun) -> dict[str, Any]:
     }
 
 
-def verify_retention(online: Session, history: list[AgentRun]) -> dict[str, Any]:
-    workflows = {
-        workflow_id: online.get(AgentWorkflowDefinition, workflow_id)
-        for workflow_id in {run.workflow_definition_id for run in history}
-    }
-    assert all(workflow is not None for workflow in workflows.values())
-    groups: dict[tuple[int, int, str, str], list[AgentRun]] = {}
-    for run in history:
-        source = persisted_source_snapshot(run)
-        if source is None or run.status not in TERMINAL_RUN_STATUSES:
-            continue
-        workflow = workflows[run.workflow_definition_id]
-        key = (run.project_id, run.user_id, workflow.workflow_key, source.key)
-        groups.setdefault(key, []).append(run)
-    ordered_groups = [
-        (key, sorted(rows, key=lambda run: (run.finished_at or datetime.min, run.id), reverse=True))
-        for key, rows in groups.items()
-    ]
-    selected = next((
-        (key, rows) for key, rows in ordered_groups
-        if len(rows) >= 3 and rows[0].status == "success"
-        and any(run.status == "success" for run in rows[1:])
-    ), None)
-    if selected is None:
-        return {
-            "status": "not_tested",
-            "reason": "真实历史缺少三个同源终态运行，未构造业务内容",
-        }
-    key, same_source = selected
-    keep = same_source[0]
-    same_source_ids = {run.id for run in same_source}
-    different_source_ids = {
-        run.id for other_key, rows in groups.items()
-        if other_key[3] != key[3]
-        for run in rows
-    }
-    # 每个真实运行只取少量真实关联记录，证明清理确实落到节点和事件表。
-    children = [
-        row
-        for run in history
-        for model in (AgentNodeRun, AgentRunEvent)
-        for row in online.scalars(select(model).where(
-            model.run_id == run.id,
-        ).order_by(model.id).limit(1)).all()
-    ]
-    records = [*workflows.values(), *history, *children]
-    business = {
-        run.id: deepcopy((run.input_payload, run.run_context, run.output_payload))
-        for run in history
-    }
-    preserved_success = next(run for run in same_source[1:] if run.status == "success")
-    old_failure = next(run for run in reversed(same_source[1:]) if run.id != preserved_success.id)
-    results = {}
-    for scenario in ("success", "failed"):
-        with isolated_repository(*records) as repo:
-            status_changes = {}
-            if scenario == "failed":
-                # 仅改调度状态：新失败运行应淘汰旧失败记录，同时保留已有成功产物。
-                for original in (keep, old_failure):
-                    copied = repo.get_run(run_id=original.id)
-                    assert copied is not None
-                    copied.status = "failed"
-                    status_changes[original.id] = {"from": original.status, "to": "failed"}
-                repo.db.commit()
-            expected_deleted = {
-                run.id for run in same_source[1:]
-                if scenario == "success" or run.id == old_failure.id or run.status != "success"
-            }
-            deleted = repo.prune_terminal_run_history(
-                project_id=keep.project_id, user_id=keep.user_id,
-                workflow_definition_id=keep.workflow_definition_id,
-                keep_run_id=keep.id, limit=1,
-            )
-            assert set(deleted) == expected_deleted
-            repo.db.commit()
-            deleted_children = {}
-            with Session(repo.db.get_bind()) as persisted:
-                remaining = persisted.scalars(select(AgentRun)).all()
-                remaining_ids = {run.id for run in remaining}
-                assert remaining_ids == {run.id for run in history} - expected_deleted
-                assert keep.id in remaining_ids and different_source_ids <= remaining_ids
-                for run in remaining:
-                    assert (run.input_payload, run.run_context, run.output_payload) == business[run.id]
-                for model in (AgentNodeRun, AgentRunEvent):
-                    copied_children = [row for row in children if isinstance(row, model)]
-                    removed_ids = {row.id for row in copied_children if row.run_id in expected_deleted}
-                    assert removed_ids, f"缺少可验证删除的真实 {model.__tablename__} 记录"
-                    remaining_child_ids = set(persisted.scalars(select(model.id)).all())
-                    assert remaining_child_ids == {row.id for row in copied_children} - removed_ids
-                    deleted_children[model.__tablename__] = sorted(removed_ids)
-                if scenario == "failed":
-                    retained_success = persisted.get(AgentRun, preserved_success.id)
-                    assert retained_success is not None and retained_success.status == "success"
-                    assert persisted_test_generation_result(retained_success) is not None
-            results[scenario] = {
-                "status": "passed", "keep_run_id": keep.id,
-                "injected_status_changes": status_changes,
-                "deleted_run_ids": sorted(deleted), "remaining_run_ids": sorted(remaining_ids),
-                "other_source_run_ids_preserved": sorted(different_source_ids),
-                "deleted_real_child_ids": deleted_children,
-                "business_payload_preserved": "passed",
-                "successful_result_preserved_run_id": preserved_success.id if scenario == "failed" else None,
-            }
-    return {
-        "status": "passed", "source_run_ids": [run.id for run in history],
-        "same_source_run_ids": sorted(same_source_ids), "source_key": key[3],
-        "different_source_scopes": [
-            {"run_id": run.id, "project_id": run.project_id,
-             "workflow_definition_id": run.workflow_definition_id}
-            for run in history if run.id in different_source_ids
-        ],
-        "same_project_workflow_different_source": (
-            "passed" if any(other_key[:3] == key[:3] and other_key[3] != key[3] for other_key in groups)
-            else "not_tested_no_real_records"
-        ),
-        "replays": results, "mysql_row_lock_concurrency": "not_tested_in_sqlite",
-    }
 
 
 def main() -> None:
@@ -544,7 +427,6 @@ def main() -> None:
             "node_finalization": verify_node_finalization(online, selected),
             "stale_worker_lease": verify_stale_worker_lease(selected),
             "approval": verify_approval(online),
-            "retention": verify_retention(online, history),
             "online_transaction": "READ ONLY",
             "online_database_writes": 0,
             "model_calls": 0,

@@ -1,5 +1,6 @@
 import { Badge, Modal } from 'react-bootstrap';
-import type { AgentDefinition, AgentNodeRun } from '../agent-platform/types';
+import type { AgentNodeRun } from '../agent-platform/types';
+import type { ExecutionAgent } from '../agent-platform/runPresentation';
 
 export type AgentNodeTiming = {
   duration: string;
@@ -82,7 +83,7 @@ type Props = {
   show: boolean;
   onHide: () => void;
   nodeRun: AgentNodeRun | undefined;
-  agent: AgentDefinition | undefined;
+  agent: ExecutionAgent | undefined;
   role: string;
   model: { name: string; source: string } | null;
   timing: AgentNodeTiming | null;
@@ -161,7 +162,7 @@ export function AgentNodeDetailModal({
               <summary>查看技术详情</summary>
               <div className="agent-technical-meta"><span>Agent Key</span><strong>{agent?.agent_key || nodeRun.node_key}</strong></div>
               {agent?.instructions && <details><summary>执行指令</summary><p className="agent-technical-instructions">{agent.instructions}</p></details>}
-              <details><summary>节点输入</summary><JsonView value={nodeRun.input_payload} /></details>
+              <details><summary>{nodeRun.input_payload_is_reference ? '节点输入引用' : '节点输入'}</summary><JsonView value={nodeRun.input_payload} /></details>
               <details><summary>节点输出</summary><JsonView value={nodeRun.output_payload} /></details>
               {Object.keys(nodeRun.sdk_state).length > 0 && <details><summary>SDK 执行状态</summary><JsonView value={nodeRun.sdk_state} /></details>}
             </details>

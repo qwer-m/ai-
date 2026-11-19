@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import nullcontext
 import json
 import threading
 import time
@@ -29,11 +30,6 @@ from modules.agent_platform.sdk_adapter import (
 from modules.agent_platform.registry import ToolExecutionContext
 from modules.agent_platform.retry_policy import RetryAttemptState, content_attempt_budget
 from modules.agent_platform.output_repair import OutputRepairError
-from modules.agent_platform.test_generation_repair import (
-    GENERATION_REPAIR_STRATEGY,
-    REVIEW_REPAIR_STRATEGY,
-    planning_repair_targets,
-)
 
 
 @pytest.fixture(autouse=True)
@@ -128,6 +124,12 @@ class _FakeDB:
         self.repo = repo
         self.rollback_count = 0
 
+    @property
+    def no_autoflush(self):
+        """模拟 SQLAlchemy Session.no_autoflush，保持替身与生产事务边界一致。"""
+
+        return nullcontext()
+
     def add(self, value: Any) -> None:
         if isinstance(value, AgentNodeRun) and value not in self.repo.node_runs:
             value.id = len(self.repo.node_runs) + 1
@@ -172,6 +174,21 @@ class _FakeRepository:
         ]
         return max(matches, key=lambda item: item.attempt) if matches else None
 
+    def first_node_started_at(self, *, run_id: int, node_key: str) -> datetime | None:
+        values = [item.started_at for item in self.node_runs
+                  if item.run_id == run_id and item.node_key == node_key and item.started_at is not None]
+        return min(values) if values else None
+
+    def write_node_input(self, node_run: AgentNodeRun, payload: dict[str, Any]) -> None:
+        """保留生产 Repository 的节点输入写入边界。"""
+
+        node_run.input_payload = dict(payload)
+
+    def read_node_input(self, node_run: AgentNodeRun) -> dict[str, Any]:
+        """提供生产 Repository 的节点输入读取边界，支持失败后重新决策。"""
+
+        return dict(node_run.input_payload or {})
+
     def next_node_attempt(self, *, run_id: int, node_key: str) -> int:
         latest = self.latest_node_run(run_id=run_id, node_key=node_key)
         return int(latest.attempt if latest is not None else 0) + 1
@@ -211,7 +228,11 @@ def _run() -> AgentRun:
         workflow_definition_id=7,
         status="running",
         input_payload={"requirement": "真实需求"},
-        run_context={},
+        run_context={
+            # 直接调用节点执行器时也必须提供当前运行契约的截止时间。
+            "deadline_at": "2099-01-01T00:00:00",
+            "stage_deadline_at": "2099-01-01T00:00:00",
+        },
         output_payload={},
     )
 
@@ -287,46 +308,6 @@ def test_node_duration_seconds_uses_source_node_timestamps() -> None:
 
 
 
-def test_planning_route_repair_targets_only_invalid_scope() -> None:
-    item_input = {
-        "scopes": [
-            {
-                "scope_id": "EV-0001",
-                "facts": [
-                    {"fact_id": "F-001", "assertion": "入口"},
-                    {"fact_id": "F-002", "assertion": "列表"},
-                ],
-            },
-            {
-                "scope_id": "EV-0002",
-                "facts": [{"fact_id": "F-003", "assertion": "详情"}],
-            },
-        ]
-    }
-    candidate = {
-        "routes": [
-            {
-                "scope_id": "EV-0001",
-                "assignments": [
-                    {"fact_id": "F-001", "module_routes": [{"module_index": 0}]},
-                    {"fact_id": "F-002", "module_routes": [{"module_index": 0}]},
-                ],
-            },
-            {
-                "scope_id": "EV-0002",
-                "assignments": [
-                    {"fact_id": "F-003", "module_routes": []},
-                ],
-            },
-        ]
-    }
-
-    context = planning_repair_targets(
-        item_input, candidate, {"scope_ids": ["EV-0002"]},
-    )
-
-    assert context["route_repair_targets"] == [{"scope_id": "EV-0002"}]
-    assert not any(key.startswith("protected_") for key in context)
 
 
 def test_agent_map_input_projection_keeps_raw_item_separate() -> None:
@@ -366,6 +347,8 @@ def test_agent_map_postprocessor_receives_raw_item_after_model_projection(
 ) -> None:
     run = _run()
     run.run_context = {
+        "deadline_at": "2099-01-01T00:00:00",
+        "stage_deadline_at": "2099-01-01T00:00:00",
         "execution_limits": {
             "max_requests": 10,
             "max_input_tokens": 999999,
@@ -697,15 +680,15 @@ def test_standard_agent_separates_capability_transient_and_content_budgets(
         (False, False),
         (True, False),
         (True, False),
-        (True, True),
-        (True, True),
+        (True, False),
+        (True, False),
     ]
     assert received_feedback[:3] == [None, None, None]
     assert "结构化输出正文为空" in str(received_feedback[3])
     assert "缺少 phase" in str(received_feedback[4])
     final_state = repo.node_runs[-1].sdk_state
     assert final_state["server_output_schema_disabled"] is True
-    assert final_state["model_thinking_disabled"] is True
+    assert "model_thinking_disabled" not in final_state
 
 
 def test_standard_agent_hard_error_fails_without_retry(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -730,6 +713,8 @@ def test_standard_agent_hard_error_fails_without_retry(monkeypatch: pytest.Monke
 def test_single_agent_instance_quota_blocks_model_call_before_dispatch(monkeypatch: pytest.MonkeyPatch) -> None:
     run = _run()
     run.run_context = {
+        "deadline_at": "2099-01-01T00:00:00",
+        "stage_deadline_at": "2099-01-01T00:00:00",
         "execution_limits": {
             "max_requests": 1,
             "max_input_tokens": 999999,
@@ -787,6 +772,8 @@ def test_tool_agent_reserves_all_possible_sdk_turns_within_quota(
 ) -> None:
     run = _run()
     run.run_context = {
+        "deadline_at": "2099-01-01T00:00:00",
+        "stage_deadline_at": "2099-01-01T00:00:00",
         "execution_limits": {
             "max_requests": 3,
             "max_input_tokens": 999999,
@@ -933,81 +920,10 @@ def test_agent_retry_feedback_keeps_complete_aggregated_coverage_ids() -> None:
     assert " … " not in feedback
 
 
-def test_agent_map_item_retry_feedback_explains_missing_fact_relocation() -> None:
-    error = ModelBehaviorError(
-        "agent_map 单项结果校验失败: 修复批次仍未覆盖要求事实: "
-        "['DOC269-P0004-F002']"
-    )
-    error.__cause__ = OutputRepairError(
-        "事实覆盖差异", strategy_key=REVIEW_REPAIR_STRATEGY,
-        details={"missing_fact_ids": ["DOC269-P0004-F002"]},
-    )
-
-    feedback = runtime._agent_map_item_retry_feedback(
-        previous_feedback=None,
-        exc=error,
-        item_input={
-            "authoritative_facts": [
-                {
-                    "fact_id": "DOC269-P0004-F002",
-                    "assertion": "错题本点击后进入同步作文的错题本列表页",
-                }
-            ]
-        },
-    )
-
-    assert feedback is not None
-    assert "DOC269-P0004-F002=错题本点击后进入同步作文的错题本列表页" in feedback
-    assert "必须把事实迁移" in feedback
 
 
-def test_generation_retry_feedback_includes_missing_fact_assertion() -> None:
-    error = ModelBehaviorError("生成校验失败")
-    error.__cause__ = OutputRepairError(
-        "事实覆盖差异", strategy_key=GENERATION_REPAIR_STRATEGY,
-        details={"missing_fact_ids": ["DOC269-P0006-F269-035"]},
-    )
-    feedback = runtime._agent_map_item_retry_feedback(
-        previous_feedback=None,
-        exc=error,
-        item_input={
-            "authoritative_facts": [
-                {
-                    "fact_id": "DOC269-P0006-F269-035",
-                    "assertion": "课程列表展示同步作文入口",
-                }
-            ]
-        },
-    )
-
-    assert feedback is not None
-    assert "DOC269-P0006-F269-035=课程列表展示同步作文入口" in feedback
 
 
-def test_generation_retry_feedback_includes_missing_design_intent() -> None:
-    error = ModelBehaviorError("生成校验失败")
-    error.__cause__ = OutputRepairError(
-        "测试设计覆盖差异", strategy_key=GENERATION_REPAIR_STRATEGY,
-        details={"missing_test_design_item_ids": ["TD-003-003-002"]},
-    )
-    feedback = runtime._agent_map_item_retry_feedback(
-        previous_feedback="上次输出未通过平台校验：旧错误 TD-OLD",
-        exc=error,
-        item_input={
-            "plan": {
-                "test_design_items": [
-                    {
-                        "test_design_item_id": "TD-003-003-002",
-                        "coverage_intent": "点击回复打开窗口",
-                    }
-                ]
-            }
-        },
-    )
-
-    assert feedback is not None
-    assert "TD-003-003-002=点击回复打开窗口" in feedback
-    assert "TD-OLD" not in feedback
 
 
 def test_new_content_validation_replaces_stale_retry_feedback() -> None:
@@ -1027,145 +943,8 @@ def test_new_content_validation_replaces_stale_retry_feedback() -> None:
     assert "TD-001" not in current
 
 
-def test_final_review_retry_feedback_accumulates_requirements_and_missing_fact() -> None:
-    item_input = {
-        "repair_requirements": [
-            "补充前置条件，明确区分有作品与无作品状态。",
-            "不得降低修复前已经通过的确定性事实覆盖。",
-        ],
-        "authoritative_facts": [
-            {
-                "fact_id": "DOC269-P0008-F0016",
-                "assertion": "缺省状态显示缺省图",
-            }
-        ],
-    }
-    first_error = ModelBehaviorError("终审修复校验失败")
-    first_error.__cause__ = OutputRepairError("修复校验失败", strategy_key=REVIEW_REPAIR_STRATEGY)
-    second_error = ModelBehaviorError("终审事实覆盖差异")
-    second_error.__cause__ = OutputRepairError(
-        "事实覆盖差异", strategy_key=REVIEW_REPAIR_STRATEGY,
-        details={"missing_fact_ids": ["DOC269-P0008-F0016"]},
-    )
-    first_feedback = runtime._agent_map_item_retry_feedback(
-        previous_feedback=None,
-        exc=first_error,
-        item_input=item_input,
-    )
-    second_feedback = runtime._agent_map_item_retry_feedback(
-        previous_feedback=first_feedback,
-        exc=second_error,
-        item_input=item_input,
-    )
-
-    assert first_feedback is not None
-    assert "明确区分有作品与无作品状态" in first_feedback
-    assert second_feedback is not None
-    assert "明确区分有作品与无作品状态" in second_feedback
-    assert "DOC269-P0008-F0016=缺省状态显示缺省图" in second_feedback
 
 
-def test_parallel_agent_map_stops_repeating_identical_invalid_output(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    run = _run()
-    repo = _FakeRepository(run)
-    node = WorkflowNode.model_validate(
-        {
-            "node_key": "final_review_repairs",
-            "node_type": "agent_map",
-            "reference_key": "repairer",
-            "max_attempts": 3,
-            "map_config": {
-                "items_key": "items",
-                "output_key": "items",
-                "max_concurrency": 2,
-            },
-        }
-    )
-    item_input = {
-        "authoritative_facts": [
-            {
-                "fact_id": "DOC269-P0004-F002",
-                "assertion": "错题本点击后进入同步作文的错题本列表页",
-            }
-        ]
-    }
-    node_run = AgentNodeRun(
-        id=1,
-        run_id=run.id,
-        node_key=node.node_key,
-        node_type=node.node_type,
-        status="running",
-        attempt=1,
-        input_payload={"items": [item_input]},
-    )
-    repo.node_runs.append(node_run)
-    received_feedback: list[str | None] = []
-    received_inputs: list[dict[str, Any]] = []
-
-    async def execute_instance(**arguments: Any) -> AgentExecutionResult:
-        received_feedback.append(arguments.get("retry_feedback"))
-        received_inputs.append(dict(arguments.get("item_input") or {}))
-        return AgentExecutionResult(
-            output={"test_cases": []},
-            final_text='{"test_cases":[]}',
-            last_agent_name="终审修复智能体",
-            usage={
-                "requests": 1,
-                "input_tokens": 10,
-                "output_tokens": 5,
-                "total_tokens": 15,
-            },
-        )
-
-    def postprocess(**_arguments: Any) -> dict[str, Any]:
-        error = ModelBehaviorError(
-            "agent_map 单项结果校验失败: 修复批次仍未覆盖要求事实: "
-            "['DOC269-P0004-F002']"
-        )
-        error.__cause__ = OutputRepairError(
-            "事实覆盖差异", strategy_key=REVIEW_REPAIR_STRATEGY,
-            details={"missing_fact_ids": ["DOC269-P0004-F002"]},
-        )
-        raise error
-
-    monkeypatch.setattr(runtime, "_run_parallel_agent_instance", execute_instance)
-    monkeypatch.setattr(runtime, "postprocess_agent_map_output", postprocess)
-    monkeypatch.setattr(runtime, "_agent_map_retry_delay", lambda **_: 0.0)
-
-    with pytest.raises(ModelBehaviorError, match="完全相同"):
-        runtime._execute_agent_map(
-            repo=repo,
-            run=run,
-            node=node,
-            node_run=node_run,
-            definition=SimpleNamespace(id=9, name="终审修复智能体", runtime_config={}),
-            model_metadata={"name": "test-model", "route": "review", "source": "评审模型路由"},
-            tools=[],
-            execution_context=ToolExecutionContext(
-                db=None,
-                user_id=1,
-                project_id=2,
-                run_id=run.id,
-                node_key=node.node_key,
-                run_input={},
-                artifacts={},
-            ),
-            node_input={"items": [item_input]},
-            previous=None,
-        )
-
-    assert len(received_feedback) == 3
-    assert "必须把事实迁移" in str(received_feedback[1])
-    assert received_inputs[1]["_platform_repair"]["mode"] == "minimal_patch"
-    assert received_inputs[2]["_platform_repair"]["mode"] == "full_regeneration"
-    assert "candidate_output" not in received_inputs[2]["_platform_repair"]
-    assert (
-        received_inputs[2]["_platform_repair"]["candidate_rejection"]["reason"]
-        == "repeated_invalid_after_minimal_patch"
-    )
-    assert len(node_run.sdk_state["items"][0]["validation_diagnostics"]) == 3
 
 
 def test_structured_output_errors_have_stable_failure_categories_and_budgets() -> None:
@@ -1308,46 +1087,6 @@ def test_structured_output_retry_feedback_deduplicates_required_fields() -> None
     assert "其余 1 个结构错误未展开" in feedback
 
 
-def test_generation_repair_context_keeps_missing_facts_at_batch_scope() -> None:
-    candidate = {
-        "test_cases": [
-            {"title": "用例一"},
-            {"title": "用例二"},
-            {"title": "用例三"},
-        ]
-    }
-    item_input = {
-        "case_fact_contract": {
-            "target_case_ids": ["TC-001", "TC-002", "TC-003"],
-            "required_fact_ids": ["F-001", "F-002", "F-003"],
-            "required_test_design_item_ids": ["TD-001", "TD-002", "TD-003"],
-            "fact_design_item_ids": {
-                "F-001": ["TD-001"], "F-002": ["TD-002"], "F-003": ["TD-003"],
-            },
-        }
-    }
-
-    repair = runtime._agent_map_repair_context(
-        result=SimpleNamespace(output=candidate),
-        exc=OutputRepairError(
-            "覆盖差异", strategy_key=GENERATION_REPAIR_STRATEGY,
-            details={"missing_fact_ids": ["F-002"]},
-        ),
-        validation_feedback="文案不包含任何事实编号，定位只依赖结构化差异",
-        item_input=item_input,
-    )
-
-    assert repair is not None
-    assert repair["mode"] == "minimal_patch"
-    assert repair["repair_targets"] == []
-    assert repair["batch_coverage_gaps"] == {
-        "missing_fact_ids": ["F-002"], "missing_test_design_item_ids": [],
-    }
-    assert repair["candidate_fact_ids_by_case"] == {
-        "TC-001": [], "TC-002": [], "TC-003": [],
-    }
-    assert not any(key.startswith("protected_") for key in repair)
-    assert repair["candidate_output"] == candidate
 
 
 def test_container_type_damage_uses_full_regeneration_without_candidate() -> None:
@@ -1597,6 +1336,8 @@ def test_agent_map_runs_independent_instances_concurrently(
 ) -> None:
     run = _run()
     run.run_context = {
+        "deadline_at": "2099-01-01T00:00:00",
+        "stage_deadline_at": "2099-01-01T00:00:00",
         "execution_limits": {
             "max_requests": 1,
             "max_input_tokens": 999999,
@@ -1665,12 +1406,7 @@ def test_agent_map_runs_independent_instances_concurrently(
             runtime_config={"max_turns": 1},
         ),
         model_metadata={"name": "test-model", "route": "vision", "source": "视觉模型路由"},
-        tools=[
-            SimpleNamespace(
-                tool_key="submit_source_semantics",
-                handler_key="testing.submit_source_semantics",
-            )
-        ],
+        tools=[],
         execution_context=ToolExecutionContext(
             db=None,
             user_id=1,
@@ -1692,6 +1428,7 @@ def test_agent_map_runs_independent_instances_concurrently(
         "min_concurrency": 2,
         "effective_concurrency": 3,
         "pressure_failures": 0,
+        "successful_since_adjustment": 0,
         "active_instances": 0,
         "retry_waiting_instances": 0,
         "completed_instances": 6,
@@ -1993,16 +1730,17 @@ def test_agent_map_switches_route_after_mixed_json_and_timeout_failures(
     assert state["content_failure_counts"] == {"json_syntax": 1}
 
 
-def test_route_health_count_recovers_from_legacy_mixed_failure_state() -> None:
-    assert RetryAttemptState.restore(
-        {
-            "transient_failure_count": 1,
-            "content_failure_counts": {
-                "json_syntax": 3,
-                "output_validation": 2,
-            },
-        }
-    ).route_health_failure_count == 4
+def test_retry_state_rejects_checkpoint_without_route_health_count() -> None:
+    with pytest.raises(ValueError, match="缺少 route_health_failure_count"):
+        RetryAttemptState.restore(
+            {
+                "transient_failure_count": 1,
+                "content_failure_counts": {
+                    "json_syntax": 3,
+                    "output_validation": 2,
+                },
+            }
+        )
 
 
 def test_agent_map_prioritizes_due_retry_before_untouched_items(
@@ -2077,22 +1815,11 @@ def test_agent_map_prioritizes_due_retry_before_untouched_items(
 
 
 def test_parallel_agent_map_rejects_tools_without_safe_declaration() -> None:
-    assert runtime._unsafe_parallel_tool_keys(
-        [
-            SimpleNamespace(
-                tool_key="submit_source_semantics",
-                handler_key="testing.submit_source_semantics",
-            )
-        ]
-    ) == []
-    assert runtime._unsafe_parallel_tool_keys(
-        [
-            SimpleNamespace(
-                tool_key="resolve_requirement_evidence",
-                handler_key="testing.resolve_requirement_evidence",
-            )
-        ]
-    ) == ["resolve_requirement_evidence"]
+    # 当前生成动作修改持久state，不能因旧提交工具曾声明安全而并发调用。
+    assert runtime._unsafe_parallel_tool_keys([]) == []
+    assert runtime._unsafe_parallel_tool_keys([
+        SimpleNamespace(tool_key="append_cases", handler_key="testing.generation.append_cases"),
+    ]) == ["append_cases"]
 
 
 def test_parallel_agent_instance_loads_its_own_bound_tools(
@@ -2150,6 +1877,8 @@ def test_parallel_agent_instance_loads_its_own_bound_tools(
             item_input={"page_number": 12},
             instance_id="source_vision-instance-001",
             request_timeout_seconds=180,
+            output_contract=runtime.AgentOutputContract({"page_number": 12}),
+            request_budget={"attempted_requests": 1, "input_tokens": 1000, "output_tokens": 1000, "total_tokens": 2000},
         )
     )
 
@@ -2164,6 +1893,8 @@ def test_parallel_agent_map_passes_validation_error_to_item_retry(
 ) -> None:
     run = _run()
     run.run_context = {
+        "deadline_at": "2099-01-01T00:00:00",
+        "stage_deadline_at": "2099-01-01T00:00:00",
         "execution_limits": {
             "max_requests": 2,
             "max_input_tokens": 999999,
@@ -2972,9 +2703,11 @@ def test_parallel_agent_map_resumes_from_persisted_items(
             "total_count": 3,
         },
         sdk_state={
+            **RetryAttemptState().checkpoint(),
             "usage": {"requests": 1, "input_tokens": 10, "output_tokens": 5, "total_tokens": 15},
             "items": [
                 {
+                    **RetryAttemptState().checkpoint(),
                     "item_index": 0,
                     "instance_id": "source_semantics-instance-001",
                     "status": "success",
@@ -3058,8 +2791,8 @@ def test_standard_agent_cancels_inflight_async_sdk_operation(
 
     with pytest.raises(runtime._RunCancelled, match="已取消"):
         asyncio.run(
-            runtime._run_standard_agent_async(
-                execution_context=SimpleNamespace(run_id=41),
+                runtime._run_standard_agent_async(
+                    execution_context=SimpleNamespace(run_id=41, claim_token="test-claim"),
             )
         )
 

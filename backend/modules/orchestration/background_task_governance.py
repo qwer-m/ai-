@@ -315,12 +315,14 @@ def submit_background_task(
     kwargs: dict[str, Any] | None = None,
     business_id: Any | None = None,
     reason: str | None = None,
+    task_id: str | None = None,
 ) -> "TaskDispatchResult":
     from modules.orchestration.task_dispatcher import enqueue_task
 
     spec = get_background_task_spec(kind)
     if spec.backend != TaskBackend.CELERY or spec.task_name is None:
         raise ValueError(f"background task kind {spec.kind.value} is not celery-backed")
+    delivery_options = {"task_id": task_id} if task_id is not None else {}
     return enqueue_task(
         spec.task_name,
         kwargs=kwargs or {},
@@ -328,6 +330,7 @@ def submit_background_task(
         business_id=business_id,
         reason=reason or spec.default_reason,
         queue=spec.backend.value,
+        **delivery_options,
     )
 
 

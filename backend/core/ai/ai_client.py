@@ -3,6 +3,7 @@
 This module selects providers, handles cache integration, and assembles
 per-user model configuration without coupling callers to provider details.
 """
+from copy import copy
 import hashlib
 import json
 import os
@@ -504,6 +505,25 @@ class AIClient:
             )
             if vision_provider:
                 client.vl_provider = vision_provider
+        # 跟随主模型只共享凭据；每条路由仍拥有独立的思考配置。
+        reasoning = (config.metadata_info or {}).get("reasoning", {})
+        for route, attr, model in (
+            ("main", "_provider", client.model), ("turbo", "turbo_provider", client.turbo_model),
+            ("review", "review_provider", client.review_model), ("vision", "vl_provider", client.vl_model),
+        ):
+            route_provider = getattr(client, attr) or client.provider
+            if not route_provider or not model:
+                continue
+            route_provider = copy(route_provider)
+            route_provider.model = model
+            capability = reasoning.get(route, {}) if isinstance(reasoning, dict) else {}
+            effort = capability.get("effort")
+            selected_request_accepted = (capability.get("status") == "request_accepted"
+                                         and capability.get("accepted_effort") == effort)
+            route_provider.reasoning_effort = (
+                effort if effort and (selected_request_accepted or effort in capability.get("supported_efforts", [])) else None
+            )
+            setattr(client, attr, route_provider)
         client._set_cache_namespace(cls._config_cache_namespace(config))
         return client
     def replace_runtime_from(self, other: "AIClient") -> None:

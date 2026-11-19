@@ -13,7 +13,8 @@ from agents import ToolsToFinalOutputResult
 from agents.exceptions import ModelBehaviorError
 from agents.tool import FunctionTool, FunctionToolResult
 from agents.tool_context import ToolContext
-from .request_diagnostics import safe_transport_message
+from .request_diagnostics import exception_chain, safe_transport_message, validation_error_details
+from .retry_policy import model_transport_failure_kind
 
 
 @dataclass(frozen=True)
@@ -26,6 +27,71 @@ class AcceptedSubmission:
 
 class AutonomousToolLimitError(RuntimeError):
     """工具预算耗尽时终止本轮，不能伪装成可以继续修补的业务错误。"""
+
+
+class AgentNoProgressError(RuntimeError):
+    """同一版本重复已经否决的输入或相同空动作，必须停止且不能重试整节点。"""
+
+    def __init__(self, message: str, *, diagnostic: dict[str, Any] | None = None) -> None:
+        self.diagnostic = deepcopy(diagnostic or {})
+        super().__init__(message)
+
+
+def _value_identity(value: Any) -> str:
+    encoded = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def _arguments_identity(arguments_json: str) -> str:
+    """等价 JSON 的空白与键顺序不是新候选；损坏参数保留其原始字节身份。"""
+    from .serialization import strict_json_loads
+
+    try:
+        return _value_identity(strict_json_loads(arguments_json))
+    except ValueError:
+        return hashlib.sha256(arguments_json.encode("utf-8")).hexdigest()
+
+
+def repeated_domain_rejection(checkpoint: dict[str, Any], *, state_hash: str,
+                              error_type: str, message: str) -> dict[str, Any] | None:
+    """领域准入目录未变时，反复违反同一准入约束不构成新的业务判断。"""
+    identity = _value_identity({"error_type": error_type, "message": message})
+    for receipt in (checkpoint.get("receipts") or {}).values():
+        error = receipt.get("error") or {}
+        if (receipt.get("status") != "failed" or receipt.get("pre_state_hash") != state_hash
+                or not error.get("recoverable")):
+            continue
+        feedback = error.get("feedback") or error
+        prior = _value_identity({"error_type": feedback.get("error_type"), "message": feedback.get("message", "")})
+        if prior == identity:
+            return {"domain_sha256": state_hash, "error_sha256": identity,
+                    "previous_tool_call_id": receipt["tool_call_id"]}
+    return None
+
+
+def repeated_action_failure(checkpoint: dict[str, Any], *, tool_key: str,
+                            arguments_json: str, state_hash: str) -> dict[str, Any] | None:
+    """只识别同一完整领域版本下原样重提的验收失败，传输中断不参与判定。"""
+    identity = _arguments_identity(arguments_json)
+    for receipt in (checkpoint.get("receipts") or {}).values():
+        if (receipt.get("status") != "failed" or receipt.get("tool_key") != tool_key
+                or receipt.get("pre_state_hash") != state_hash
+                or not receipt.get("error", {}).get("recoverable")):
+            continue
+        previous = receipt.get("arguments", {}).get("arguments_json")
+        if not isinstance(previous, str) or _arguments_identity(previous) != identity:
+            continue
+        error = receipt["error"]
+        return {"tool_key": tool_key, "arguments_sha256": identity, "domain_sha256": state_hash,
+                "previous_tool_call_id": receipt["tool_call_id"],
+                "error_sha256": _value_identity(error.get("feedback") or {
+                    "error_type": error["error_type"], "message": error.get("message", ""),
+                })}
+    return None
+
+
+def _result_identity(result: Any) -> str:
+    return _arguments_identity(result) if isinstance(result, str) else _value_identity(result)
 
 
 class AutonomousToolLoop:
@@ -55,6 +121,8 @@ class AutonomousToolLoop:
         self._accepted_call_id: str | None = None
         self._action_context = action_context
         self._budget_snapshot = budget_snapshot
+        self._failed_candidates: dict[tuple[str, str, str | None], str] = {}
+        self._unchanged_results: set[tuple[str, str, str | None, str]] = set()
 
     def _budget(self) -> dict[str, Any] | None:
         return self._budget_snapshot() if self._budget_snapshot is not None else None
@@ -62,6 +130,11 @@ class AutonomousToolLoop:
     @property
     def events(self) -> list[dict[str, Any]]:
         return deepcopy(self._events)
+
+    @property
+    def has_submission(self) -> bool:
+        """只有真实终止工具通过完整验收，专业会话才允许结束。"""
+        return self._accepted is not None
 
     def _begin_call(self, tool_name: str, context: ToolContext[Any], arguments_json: str) -> dict[str, Any]:
         call_id = context.tool_call_id
@@ -72,23 +145,42 @@ class AutonomousToolLoop:
         if len(self._events) >= self._max_tool_calls:
             raise AutonomousToolLimitError("本轮 Agent 已耗尽工具调用预算")
         if self._action_context is not None and self._action_context.action_journal is not None:
-            checkpoint = self._action_context.action_journal.load()
-            receipts = (checkpoint or {}).get("receipts") or {}
-            if call_id not in receipts and len(receipts) >= self._max_tool_calls:
+            journal = self._action_context.action_journal
+            receipts = journal.receipts()
+            if not any(item["tool_call_id"] == call_id for item in receipts) and len(receipts) >= self._max_tool_calls:
                 raise AutonomousToolLimitError("该 Agent 阶段已耗尽累计工具调用预算，恢复不会重置预算")
+        else:
+            receipts = None
         event: dict[str, Any] = {
             "tool_call_id": call_id,
             "tool_key": tool_name,
             "status": "running",
             "arguments_chars": len(arguments_json),
             "arguments_sha256": hashlib.sha256(arguments_json.encode("utf-8")).hexdigest(),
+            "arguments_identity_sha256": _arguments_identity(arguments_json),
         }
+        if receipts is not None:
+            from .action_journal import action_state_hash
+
+            state_hash = action_state_hash(self._action_context.action_state)
+            for header in reversed(receipts):
+                if (header["status"] != "failed" or header["tool_key"] != tool_name
+                        or header["pre_state_hash"] != state_hash):
+                    continue
+                previous = journal.receipt_by_id(header["tool_call_id"])
+                repeated = repeated_action_failure({"receipts": {header["tool_call_id"]: previous}},
+                    tool_key=tool_name, arguments_json=arguments_json, state_hash=state_hash)
+                if repeated is not None:
+                    event["no_progress"] = repeated
+                    break
         self._events.append(event)
         self._receipts[call_id] = event
         return event
 
     def _recoverable_error(self, error: Exception) -> Exception | None:
         """只解包明确的 SDK 模型行为错误；平台工具异常不得因其 cause 被吞掉。"""
+        if self._action_context is not None and self._action_context.stop_on_failure:
+            return None
         current: BaseException | None = error
         seen: set[int] = set()
         while current is not None and id(current) not in seen:
@@ -122,6 +214,22 @@ class AutonomousToolLoop:
         recoverable = self._recoverable_error(error)
         return self._feedback(recoverable) if recoverable is not None else None
 
+    @staticmethod
+    def _failure_record(error: BaseException, *, recoverable: bool,
+                        feedback: dict[str, Any] | None) -> dict[str, Any]:
+        """错误事实独立于是否继续调用模型，严格停止也保留原始业务差异。"""
+        details = validation_error_details(error)
+        return {
+            "error_type": type(error).__name__, "message": (safe_transport_message(error) or str(error))[:4000],
+            "transport_failure_kind": next((kind for item in exception_chain(error)
+                if (kind := model_transport_failure_kind(item)) is not None), None),
+            "recoverable": recoverable,
+            **({"details": details} if details is not None else {}),
+            **({"feedback": feedback} if feedback is not None else {}),
+            **({"agent_input_identity": deepcopy(error.agent_input_identity)}
+               if feedback is not None and hasattr(error, "agent_input_identity") else {}),
+        }
+
     def wrap_tool(self, tool: FunctionTool, *, allow_feedback: bool) -> FunctionTool:
         """仅给显式允许反馈的工具返回校验差异，其他工具保留原异常语义。"""
         if tool.name in self._terminal_names and not allow_feedback:
@@ -129,6 +237,8 @@ class AutonomousToolLoop:
         original_invoke = tool.on_invoke_tool
 
         async def invoke(context: ToolContext[Any], arguments_json: str) -> Any:
+            if self._action_context is not None:
+                self._action_context.require_request_allowed()
             event = self._begin_call(tool.name, context, arguments_json)
             action_context = self._action_context
             journal = action_context.action_journal if action_context is not None else None
@@ -143,8 +253,11 @@ class AutonomousToolLoop:
                     resume_started=action_context.restoring_action,
                 )
                 if receipt.replayed and receipt.status == "failed":
-                    raise ModelBehaviorError("失败动作回执不能被重新执行；请依据当前状态选择新行动")
+                    raise AgentNoProgressError("失败动作回执不能被重新执行；本次没有新的输入或证据")
             try:
+                if event.get("no_progress") is not None:
+                    raise AgentNoProgressError("同一领域版本再次提交已否决的相同参数，停止无进展调用",
+                                               diagnostic=event["no_progress"])
                 result = (
                     receipt.result["output"] if receipt is not None and receipt.replayed
                     else await original_invoke(context, arguments_json)
@@ -164,6 +277,30 @@ class AutonomousToolLoop:
                 result_text = result if isinstance(result, str) else json.dumps(result, ensure_ascii=False)
                 event["output_chars"] = len(result_text)
                 event["output_sha256"] = hashlib.sha256(result_text.encode("utf-8")).hexdigest()
+                if tool.name not in self._terminal_names:
+                    state_hash = _value_identity(previous_state) if previous_state is not None else None
+                    next_hash = _value_identity(action_context.action_state) if journal is not None else None
+                    key = (tool.name, event["arguments_identity_sha256"], state_hash, _result_identity(result))
+                    repeated = key in self._unchanged_results
+                    if journal is not None and state_hash == next_hash and not repeated:
+                        for header in reversed(journal.receipts()):
+                            if (header["status"] != "completed" or header["tool_key"] != tool.name
+                                    or header["pre_state_hash"] != header.get("post_state_hash")
+                                    or header["pre_state_hash"] != state_hash):
+                                continue
+                            old = journal.receipt_by_id(header["tool_call_id"])
+                            arguments = old.get("arguments", {}).get("arguments_json")
+                            repeated = (isinstance(arguments, str) and _arguments_identity(arguments) == key[1]
+                                and "output" in old.get("result", {})
+                                and _result_identity(old["result"]["output"]) == key[3])
+                            if repeated:
+                                break
+                    if state_hash == next_hash:
+                        if repeated and not (receipt is not None and receipt.replayed):
+                            raise AgentNoProgressError("工具再次返回同一结果且领域状态未改变，停止无进展调用",
+                                diagnostic={"tool_key": tool.name, "arguments_sha256": key[1],
+                                            "domain_sha256": state_hash, "output_sha256": key[3]})
+                        self._unchanged_results.add(key)
                 if journal is not None and not receipt.replayed:
                     journal.complete(
                         tool_call_id=context.tool_call_id, nextstate=action_context.action_state,
@@ -172,27 +309,42 @@ class AutonomousToolLoop:
                 if submission is not None:
                     self._accepted = submission
                     self._accepted_call_id = context.tool_call_id
+                if journal is not None:
+                    from .conflict_confirmation import require_conflict_confirmation
+                    require_conflict_confirmation(action_context.action_state)
                 return result
             except BaseException as error:
+                from .conflict_confirmation import ConflictConfirmationRequired
+                if isinstance(error, ConflictConfirmationRequired):
+                    raise
+                if action_context is not None:
+                    action_context.record_failure(error)
                 recoverable = self._recoverable_error(error) if allow_feedback and isinstance(error, Exception) else None
                 feedback = self._feedback(recoverable) if recoverable is not None else None
+                if recoverable is not None:
+                    state_hash = _value_identity(previous_state) if previous_state is not None else None
+                    candidate_key = (tool.name, event["arguments_identity_sha256"], state_hash)
+                    error_hash = _value_identity(feedback)
+                    if self._failed_candidates.get(candidate_key) == error_hash:
+                        error = AgentNoProgressError("相同候选在相同版本再次得到同一验收错误，停止重复修补",
+                            diagnostic={"tool_key": tool.name, "arguments_sha256": candidate_key[1],
+                                        "domain_sha256": state_hash, "error_sha256": error_hash})
+                        recoverable, feedback = None, None
+                    else:
+                        self._failed_candidates[candidate_key] = error_hash
+                failure_record = self._failure_record(error, recoverable=recoverable is not None, feedback=feedback)
                 if journal is not None:
                     action_context.action_state = previous_state
                     # 失租时日志本身会拒绝迟到提交，不能让旧 Worker 覆盖新进度。
                     journal.fail(
                         tool_call_id=context.tool_call_id,
-                        error={
-                            "error_type": type(error).__name__, "message": (safe_transport_message(error) or str(error))[:4000],
-                            "recoverable": recoverable is not None,
-                            **({"feedback": feedback} if feedback is not None else {}),
-                            **({"agent_input_identity": deepcopy(error.agent_input_identity)}
-                               if feedback is not None and hasattr(error, "agent_input_identity") else {}),
-                        },
+                        error=failure_record,
                         budget=self._budget(),
                     )
                 if recoverable is None:
-                    event.update(status="error", error_type=type(error).__name__, message=(safe_transport_message(error) or str(error))[:4000])
-                    raise
+                    event.update(status="error", **{key: failure_record[key]
+                                 for key in ("error_type", "message", "details") if key in failure_record})
+                    raise error
                 event.update(status="rejected", feedback=feedback)
                 return json.dumps({
                     "status": "rejected",

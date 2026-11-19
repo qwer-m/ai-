@@ -49,6 +49,18 @@ def assert_run_claim(
         raise RunLeaseLost(f"Agent Run {run.id} 的执行租约已失效")
 
 
+def require_model_request_claim(context: Any) -> None:
+    """每次请求前以短事务核对运行归属和执行权，不持锁跨模型调用。"""
+    from core.db.database import SessionLocal
+    from .run_repository import AgentRunRepository
+
+    with SessionLocal() as db:
+        run = AgentRunRepository(db).get_run_control_for_update(run_id=context.run_id)
+        if run is None or run.user_id != context.user_id or run.project_id != context.project_id:
+            raise RunLeaseLost("模型请求与当前运行的用户或项目归属不一致")
+        assert_run_claim(run, context.claim_token, now=datetime.utcnow())
+
+
 def release_run_lease(run: AgentRun) -> None:
     run.claim_token = None
     run.heartbeat_at = None
@@ -106,12 +118,18 @@ def transition_run(
             approval.decision_payload = {"reason": "运行已结束，审批失效", "run_status": target}
             repo.db.add(approval)
     if target in {"failed", "cancelled"}:
+        finalize_arguments: dict[str, Any] = {
+            "run_id": run.id,
+            "status": target,
+            "finished_at": at,
+            "error_message": error_message or ("运行已取消，节点终止" if target == "cancelled" else "运行失败，节点终止"),
+        }
+        # 全局运行收尾没有当前节点时，不向仓储适配器传递空的可选筛选条件；
+        # 这样旧的轻量适配器与真实 SQLAlchemy 仓储都共享同一调用契约。
+        if node_run_id is not None:
+            finalize_arguments["node_run_id"] = node_run_id
         repo.finalize_unfinished_node_runs(
-            run_id=run.id,
-            status=target,
-            finished_at=at,
-            error_message=error_message or ("运行已取消，节点终止" if target == "cancelled" else "运行失败，节点终止"),
-            node_run_id=node_run_id,
+            **finalize_arguments,
         )
     repo.db.add(run)
     repo.append_event(

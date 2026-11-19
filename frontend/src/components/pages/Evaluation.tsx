@@ -69,18 +69,19 @@ export function Evaluation({
   useEffect(() => {
     if (hydratedStorageKeyRef.current === storageKey) return;
     hydratedStorageKeyRef.current = storageKey;
+    skipNextDraftPersistRef.current = true;
+    setEvalGenerated('');
+    setEvalModified('');
+    setEvalResult(null);
     try {
       const raw = window.localStorage.getItem(storageKey);
       if (!raw) return;
       const draft = JSON.parse(raw);
-      skipNextDraftPersistRef.current = true;
-      if (typeof draft?.evalGenerated === 'string') setEvalGenerated(draft.evalGenerated);
       if (typeof draft?.evalModified === 'string') setEvalModified(draft.evalModified);
-      if (draft?.evalResult && typeof draft.evalResult === 'object') setEvalResult(draft.evalResult);
       if (typeof draft?.uploadedReferenceFilename === 'string') actions.setUploadedReferenceFilename(draft.uploadedReferenceFilename);
       if (typeof draft?.loadedReferenceFilename === 'string') actions.setLoadedReferenceFilename(draft.loadedReferenceFilename);
     } catch {
-      // Ignore malformed local drafts; the current in-memory state remains authoritative.
+      // 草稿只恢复人工输入；生成结果和评测身份必须重新从服务器读取。
     }
   }, [storageKey, setEvalGenerated, setEvalModified, setEvalResult, actions]);
 
@@ -94,9 +95,7 @@ export function Evaluation({
       window.localStorage.setItem(
         storageKey,
         JSON.stringify({
-          evalGenerated,
           evalModified,
-          evalResult,
           uploadedReferenceFilename: actions.uploadedReferenceFilename,
           loadedReferenceFilename: actions.loadedReferenceFilename,
           updatedAt: new Date().toISOString(),
@@ -127,19 +126,23 @@ export function Evaluation({
         <TestCaseCoveragePanel
           evalGenerated={evalGenerated}
           evalModified={evalModified}
-          setEvalModified={setEvalModified}
+          setEvalModified={actions.setReferenceText}
           evalResult={evalResult}
           loading={actions.loading}
           runHistory={actions.runHistory}
+          baselineText={actions.baselineText}
+          onBaselineChange={actions.setBaselineText}
           selectedRunId={actions.selectedRunId}
-          onSelectRunId={actions.setSelectedRunId}
+          onSelectRunId={actions.selectRunId}
           onLoadRunById={actions.loadRunById}
           onFileChange={actions.setReferenceFile}
           uploadedReferenceFilename={actions.uploadedReferenceFilename}
           loadedReferenceFilename={actions.loadedReferenceFilename}
           onEvaluate={actions.evaluateTestCases}
-          onInvalidateEvaluation={() => setEvalResult(null)}
           history={actions.history}
+          projectId={projectId}
+          verifiedEvaluation={actions.verifiedEvaluation}
+          sourceLoaded={actions.sourceLoaded}
         />
       </div>
 

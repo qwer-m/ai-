@@ -15,6 +15,36 @@ from sqlalchemy import text
 from core.db.database import SessionLocal
 from core.db.model_defs import AgentNodeRun, AgentRun, AgentRunEvent
 from modules.agent_platform.results import persisted_test_generation_result
+from modules.agent_platform.checkpoint_storage import checkpoint_projection, compact_checkpoint, receipt_records
+
+
+def action_summary(db, node):
+    """现库读取紧凑投影和小回执头；历史内嵌协议只作明确标注的存档审计。"""
+    checkpoint = (node.sdk_state or {}).get("action_checkpoint") or {}
+    if checkpoint.get("version") == 3:
+        compact = compact_checkpoint(node)
+        projection = checkpoint_projection(compact)
+        progress = projection["planning_progress"]
+        counts = projection["saved_child_counts"]
+        records = receipt_records(db, node, compact).values()
+        protocol = compact["storage"]
+        planning = {name: {"total": progress[key]["total"], "complete": progress[key]["completed"]}
+                    for name, key in (("route_records", "routes"), ("gap_records", "supports"))}
+    else:
+        state_planning = (checkpoint.get("state") or {}).get("planning") or {}
+        counts = dict(Counter(receipt["identity"]["agent_key"] for receipt in
+                              (checkpoint.get("validated_agent_calls") or {}).values()))
+        records = (checkpoint.get("receipts") or {}).values()
+        protocol = "legacy-inline-archive" if checkpoint else "no-action-checkpoint"
+        planning = {key: {"total": len(state_planning.get(key) or []),
+                          "complete": sum(value is not None for value in state_planning.get(key) or [])}
+                    for key in ("route_records", "gap_records")}
+    return {"checkpoint_protocol": protocol, "budget": checkpoint.get("budget"),
+            "validated_specialist_counts": counts, "planning_progress": planning,
+            "actions": [{"tool_key": value["tool_key"], "status": value["status"],
+                         "error_type": value.get("error_type") or (value.get("error") or {}).get("error_type"),
+                         "error_details_ref": value.get("error_ref")}
+                        for value in records]}
 
 
 def concurrency(requests):
@@ -53,8 +83,6 @@ def audit(run_ids):
                 node = db.get(AgentNodeRun, node_id)
                 sdk = node.sdk_state or {}
                 diagnostic = sdk.get("error_diagnostic") or {}
-                checkpoint = sdk.get("action_checkpoint") or {}
-                planning = (checkpoint.get("state") or {}).get("planning") or {}
                 requests = sdk.get("model_requests") or diagnostic.get("model_requests") or []
                 grouped = {}
                 for request in requests:
@@ -64,16 +92,7 @@ def audit(run_ids):
                     "status": node.status, "started_at": node.started_at, "finished_at": node.finished_at,
                     "elapsed_seconds": (node.finished_at-node.started_at).total_seconds()
                         if node.finished_at and node.started_at else None,
-                    "error": node.error_message, "budget": checkpoint.get("budget"),
-                    "validated_specialist_counts": dict(Counter(
-                        receipt["identity"]["agent_key"] for receipt in
-                        (checkpoint.get("validated_agent_calls") or {}).values())),
-                    "planning_progress": {key: {"total": len(planning.get(key) or []),
-                                                 "complete": sum(value is not None for value in planning.get(key) or [])}
-                                          for key in ("route_records", "gap_records")},
-                    "actions": [{"tool_key": value["tool_key"], "status": value["status"],
-                                 "error_type": (value.get("error") or {}).get("error_type")}
-                                for value in (checkpoint.get("receipts") or {}).values()],
+                    "error": node.error_message, **action_summary(db, node),
                     "model_request_groups": {key: {"request_count": len(values),
                         "peak_concurrency": concurrency(values),
                         "sum_request_seconds": round(sum(value.get("elapsed_seconds", 0) for value in values), 3),

@@ -43,18 +43,14 @@ def real_workflows() -> list[dict]:
 
 
 @pytest.fixture(scope="module")
-def generation_workflow(real_workflows: list[dict]) -> dict:
-    return next(item for item in reversed(real_workflows) if item["workflow_key"] == "test_generation")
+def dag_workflow(real_workflows: list[dict]) -> dict:
+    return max((item for item in real_workflows if item["definition"]["execution_mode"] == "dag"
+                and item["definition"].get("display_stages")), key=lambda item: len(item["definition"]["nodes"]))
 
 
-@pytest.mark.parametrize("omit_mode", [False, True])
-def test_real_definitions_have_consistent_creation_and_loading(real_workflows: list[dict], omit_mode: bool) -> None:
+def test_real_definitions_have_consistent_creation_and_loading(real_workflows: list[dict]) -> None:
     for record in real_workflows:
         payload = deepcopy(record)
-        if omit_mode:
-            if payload["definition"].get("execution_mode", "dag") != "dag":
-                continue
-            payload["definition"].pop("execution_mode", None)
         loaded = parse_execution_definition(payload["definition"])
         created = WorkflowDefinitionCreate.model_validate(payload).definition
         assert created.model_dump() == loaded.model_dump(), record["workflow_key"]
@@ -84,7 +80,7 @@ def _invalid_definition(definition: dict, fault: str) -> dict:
         value["display_stages"].append(deepcopy(value["display_stages"][0]))
     elif fault == "unknown_stage_node":
         value["display_stages"][0]["node_keys"].append(missing_key)
-    elif fault == "missing_mode_invalid_dag":
+    elif fault == "missing_mode":
         value.pop("execution_mode", None)
         value.pop("output_node_key")
         value["entry_agent_key"] = next(node["reference_key"] for node in nodes if node["node_type"] in {"agent", "agent_map", "agent_network"})
@@ -95,20 +91,20 @@ def _invalid_definition(definition: dict, fault: str) -> dict:
 
 @pytest.mark.parametrize("fault", [
     "duplicate_node", "unknown_dependency", "self_dependency", "cycle",
-    "missing_output", "duplicate_stage", "unknown_stage_node", "missing_mode_invalid_dag",
+    "missing_output", "duplicate_stage", "unknown_stage_node", "missing_mode",
 ])
-def test_invalid_real_definition_copies_are_rejected_by_both_entries(generation_workflow: dict, fault: str) -> None:
-    original = deepcopy(generation_workflow)
+def test_invalid_real_definition_copies_are_rejected_by_both_entries(dag_workflow: dict, fault: str) -> None:
+    original = deepcopy(dag_workflow)
     invalid = _invalid_definition(original["definition"], fault)
     with pytest.raises(ValueError):
         parse_execution_definition(invalid)
     with pytest.raises(ValueError):
         WorkflowDefinitionCreate.model_validate({**original, "definition": invalid})
-    assert generation_workflow == original
+    assert dag_workflow == original
 
 
-def test_real_parallel_nodes_keep_declaration_order(generation_workflow: dict) -> None:
-    definition = deepcopy(generation_workflow["definition"])
+def test_real_parallel_nodes_keep_declaration_order(dag_workflow: dict) -> None:
+    definition = deepcopy(dag_workflow["definition"])
     # 仅倒转真实节点的声明顺序，不改变节点、依赖及工具引用。
     definition["nodes"].reverse()
     ordered = parse_execution_definition(definition).execution_order()
@@ -126,8 +122,8 @@ def test_real_parallel_nodes_keep_declaration_order(generation_workflow: dict) -
 
 
 @pytest.mark.parametrize("fault", ["unknown_dependency", "self_dependency", "cycle"])
-def test_mutating_real_graph_dependencies_fails_without_hanging(generation_workflow: dict, fault: str) -> None:
-    invalid = _invalid_definition(generation_workflow["definition"], fault)
+def test_mutating_real_graph_dependencies_fails_without_hanging(dag_workflow: dict, fault: str) -> None:
+    invalid = _invalid_definition(dag_workflow["definition"], fault)
     code = """
 import json, sys
 from modules.agent_platform.contracts import parse_execution_definition
@@ -144,7 +140,7 @@ raise SystemExit('构造后修改依赖没有被拒绝')
     # 子进程超时能捕获停滞检查被误删导致的死循环，避免阻塞整组验证。
     result = subprocess.run(
         [sys.executable, "-c", code],
-        input=json.dumps({"original": generation_workflow["definition"], "changed": invalid}),
+        input=json.dumps({"original": dag_workflow["definition"], "changed": invalid}),
         text=True,
         capture_output=True,
         cwd=Path(__file__).resolve().parents[2],
@@ -152,3 +148,20 @@ raise SystemExit('构造后修改依赖没有被拒绝')
         check=False,
     )
     assert result.returncode == 0, result.stderr
+
+
+def test_generation_uses_strict_agent_program(real_workflows: list[dict]) -> None:
+    current = next(item for item in reversed(real_workflows) if item["workflow_key"] == "test_generation")
+    definition = current["definition"]
+    execution = parse_execution_definition(definition)
+    assert execution.execution_mode == "agent_network"
+    assert execution.entry_agent_key == "test_generation_coordinator"
+    assert execution.required_artifact_key == "test_generation"
+    for fault in ({"nodes": []}, {"output_node_key": "persist"}, {"display_stages": []}):
+        with pytest.raises(ValueError):
+            parse_execution_definition({**definition, **fault})
+    for missing in ("execution_mode", "entry_agent_key"):
+        invalid = deepcopy(definition)
+        invalid.pop(missing)
+        with pytest.raises(ValueError):
+            WorkflowDefinitionCreate.model_validate({**current, "definition": invalid})

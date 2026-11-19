@@ -1,8 +1,13 @@
 from __future__ import annotations
 import time
+from starlette.concurrency import run_in_threadpool
+from core.ai.reasoning import (
+    check_reasoning_selection, config_validation_fingerprint,
+    read_config_validation, sign_config_validation,
+)
+from core.ai.providers import OpenAICompatibleProvider
 from typing import Any
 from fastapi import APIRouter, Depends
-from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 from core.authn.auth import get_current_user
 from core.db.database import get_db
@@ -25,6 +30,7 @@ from routers.system.config_helpers import (
     validate_text_model,
     validate_tesseract_path,
     validate_vision_model,
+    _build_vision_probe_data_uri,
 )
 from routers.system.config_models import ConfigSaveRequest, ConfigValidateRequest
 router = APIRouter()
@@ -68,8 +74,18 @@ async def get_current_config(
     turbo_follow_main = bool(turbo_node.get("follow_main", True))
     review_follow_main = bool(review_node.get("follow_main", True))
     vl_follow_main = bool(vision_node.get("follow_main", True))
+    reasoning_view = {}
+    for route, capability in (meta.get("reasoning") or {}).items():
+        if not isinstance(capability, dict):
+            continue
+        if capability.get("status") == "verified":
+            # 旧五档探测只证明参数被接受；不再向界面宣称五种独立行为已验证。
+            capability = {**capability, "supported_efforts": [], "status": "request_accepted",
+                          "message": "保留历史选定参数；兼容参数可能映射到相同强度，完整工具链尚未验证。"}
+        reasoning_view[route] = capability
     return {
         "active": True,
+        "reasoning": reasoning_view,
         "provider": config.provider,
         "model_name": config.model_name,
         "vl_model_name": config.vl_model_name or "",
@@ -150,163 +166,129 @@ async def validate_config(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    return await run_in_threadpool(_validate_model_config, req, db, current_user.id)
+
+
+def _validate_model_config(req: ConfigValidateRequest, db: Session, user_id: int,
+                           *, for_save: bool = False) -> dict[str, Any]:
+    """先核对绑定配置的验证证据；只有显式验证操作才允许付费请求。"""
     provider = normalize_provider(req.provider)
-    active_config = config_manager.get_active_config(db, current_user.id)
+    active_config = config_manager.get_active_config(db, user_id)
     api_key = resolve_api_key(provider, req.api_key, active_config)
     base_url = resolve_base_url(provider, req.base_url, active_config)
-    try:
-        build_provider(provider, api_key, base_url, req.model_name)
-    except Exception as e:
-        return {"valid": False, "error": str(e)}
-    checks: list[dict[str, Any]] = []
-    checks.append(validate_text_model(provider, api_key, base_url, req.model_name, "文本模型"))
-    tesseract_manual_override = bool(req.tesseract_manual_override)
-    effective_tesseract_path = normalize_tesseract_path(req.tesseract_path)
-    ocr_auto_detected_path = ""
-    if not tesseract_manual_override and not effective_tesseract_path:
-        ocr_auto_detected_path = auto_detect_tesseract_path()
-        if ocr_auto_detected_path:
-            effective_tesseract_path = ocr_auto_detected_path
-    ocr_check = validate_tesseract_path(effective_tesseract_path)
-    if not ocr_check.get("success") and not effective_tesseract_path:
-        ocr_check["error"] = "未检测到本地 OCR 引擎，请使用云端 OCR 或安装本地 OCR 模块（Tesseract）。"
-    checks.append(ocr_check)
-    turbo_name = (req.turbo_model_name or "").strip()
-    if turbo_name:
+    route_specs = [
+        ("main", "文本模型", req.model_name, req.reasoning_effort, None),
+        ("turbo", "压缩模型", req.turbo_model_name, req.turbo_reasoning_effort, "turbo"),
+        ("review", "审查模型", req.review_model_name, req.review_reasoning_effort, "review"),
+        ("vision", "图像模型", req.vl_model_name, req.vl_reasoning_effort, "vl"),
+    ]
+    routes, identities = [], []
+    for route, label, raw_model, effort, prefix in route_specs:
+        model = (raw_model or "").strip()
+        if not model:
+            continue
         try:
-            turbo_provider, turbo_key, turbo_base_url, turbo_follow_main = resolve_target_credentials(
-                target_key="turbo",
-                follow_main=bool(req.turbo_follow_main if req.turbo_follow_main is not None else True),
-                submitted_provider=req.turbo_provider,
-                submitted_api_key=req.turbo_api_key,
-                submitted_base_url=req.turbo_base_url,
-                main_provider=provider,
-                main_api_key=api_key,
-                main_base_url=base_url,
-                active_config=active_config,
-            )
-            turbo_check = validate_text_model(
-                turbo_provider,
-                turbo_key,
-                turbo_base_url,
-                turbo_name,
-                "压缩模型",
-            )
-            turbo_check["follow_main"] = turbo_follow_main
-            turbo_check["provider"] = turbo_provider
-            checks.append(turbo_check)
-        except Exception as e:
-            checks.append(
-                {
-                    "type": "text",
-                    "label": "压缩模型",
-                    "model": turbo_name,
-                    "success": False,
-                    "latency": 0,
-                    "error": str(e),
-                }
-            )
-    review_name = (req.review_model_name or "").strip()
-    if review_name:
+            if prefix:
+                target_provider, key, url, _ = resolve_target_credentials(
+                    target_key=route,
+                    follow_main=getattr(req, prefix + "_follow_main") is not False,
+                    submitted_provider=getattr(req, prefix + "_provider"),
+                    submitted_api_key=getattr(req, prefix + "_api_key"),
+                    submitted_base_url=getattr(req, prefix + "_base_url"),
+                    main_provider=provider, main_api_key=api_key, main_base_url=base_url,
+                    active_config=active_config,
+                )
+            else:
+                target_provider, key, url = provider, api_key, base_url
+            client = build_provider(target_provider, key, url, model)
+            identity = {"route": route, "provider": target_provider,
+                        "endpoint": str(getattr(client, "base_url", url) or "").rstrip("/"),
+                        "credential": key, "model": model,
+                        "protocol": str(getattr(client, "wire_api", type(client).__name__)),
+                        "reasoning_effort": effort, "vision": route == "vision"}
+            identities.append(identity)
+            routes.append((route, label, model, effort, client, target_provider, key, url))
+        except Exception as error:
+            return {"valid": False, "error": f"{label}配置无效：{type(error).__name__}",
+                    "details": {"checks": [], "reasoning": {}}}
+    if not req.model_name.strip():
+        return {"valid": False, "error": "请填写文本模型名称", "details": {"checks": [], "reasoning": {}}}
+
+    fingerprint = config_validation_fingerprint(user_id, identities)
+    saved_token = normalize_metadata(active_config).get("validation_token")
+    tokens = [req.validation_token, saved_token]
+    if for_save or not req.refresh_validation:
+        for token in tokens:
+            evidence = read_config_validation(token, user_id=user_id, fingerprint=fingerprint)
+            if evidence is not None:
+                return {"valid": True, "error": "", "details": {**evidence, "reused": True},
+                        "validation_token": token}
+    if for_save:
+        return {"valid": False, "error": "当前配置尚无有效验证记录，请先验证连接；保存不会自动发起付费请求。",
+                "details": {"checks": [], "reasoning": {}, "reused": False}}
+
+    checks, reasoning, validated = [], {}, {}
+    for route, label, model, effort, client, target_provider, key, url in routes:
+        started = time.perf_counter()
+        check = {"route": route, "label": label, "model": model, "success": False}
         try:
-            review_provider, review_key, review_base_url, review_follow_main = resolve_target_credentials(
-                target_key="review",
-                follow_main=bool(req.review_follow_main if req.review_follow_main is not None else True),
-                submitted_provider=req.review_provider,
-                submitted_api_key=req.review_api_key,
-                submitted_base_url=req.review_base_url,
-                main_provider=provider,
-                main_api_key=api_key,
-                main_base_url=base_url,
-                active_config=active_config,
-            )
-            review_check = validate_text_model(
-                review_provider,
-                review_key,
-                review_base_url,
-                review_name,
-                "审查模型",
-            )
-            review_check["follow_main"] = review_follow_main
-            review_check["provider"] = review_provider
-            checks.append(review_check)
-        except Exception as e:
-            checks.append(
-                {
-                    "type": "text",
-                    "label": "审查模型",
-                    "model": review_name,
-                    "success": False,
-                    "latency": 0,
-                    "error": str(e),
-                }
-            )
-    vl_name = (req.vl_model_name or "").strip()
-    if vl_name:
-        try:
-            vl_provider, vl_key, vl_base_url, vl_follow_main = resolve_target_credentials(
-                target_key="vision",
-                follow_main=bool(req.vl_follow_main if req.vl_follow_main is not None else True),
-                submitted_provider=req.vl_provider,
-                submitted_api_key=req.vl_api_key,
-                submitted_base_url=req.vl_base_url,
-                main_provider=provider,
-                main_api_key=api_key,
-                main_base_url=base_url,
-                active_config=active_config,
-            )
-            vl_check = validate_vision_model(
-                vl_provider,
-                vl_key,
-                vl_base_url,
-                vl_name,
-                "图像模型",
-            )
-            vl_check["follow_main"] = vl_follow_main
-            vl_check["provider"] = vl_provider
-            checks.append(vl_check)
-        except Exception as e:
-            checks.append(
-                {
-                    "type": "vision",
-                    "label": "图像模型",
-                    "model": vl_name,
-                    "success": False,
-                    "latency": 0,
-                    "error": str(e),
-                }
-            )
-    failed_checks = [c for c in checks if not c.get("success")]
-    for check in failed_checks:
-        if check.get("error"):
-            check["error"] = localize_model_error(str(check.get("error")))
-    details = {
-        "checks": checks,
-        "latency": round(sum(float(c.get("latency") or 0) for c in checks), 2),
-        "ocr_auto_detected": bool(ocr_auto_detected_path),
-        "ocr_auto_detected_path": ocr_auto_detected_path,
-    }
-    if not failed_checks:
-        return {"valid": True, "details": details}
-    error = "；".join(
-        f"{c.get('label')}({c.get('model')}): {c.get('error') or '验证失败'}"
-        for c in failed_checks
-    )
-    return {"valid": False, "error": error, "details": details}
+            identity = config_validation_fingerprint(user_id, [{
+                "provider": target_provider, "endpoint": str(getattr(client, "base_url", url) or "").rstrip("/"),
+                "credential": key, "model": model, "protocol": str(getattr(client, "wire_api", type(client).__name__)),
+                "reasoning_effort": effort, "vision": route == "vision",
+            }])
+            if isinstance(client, OpenAICompatibleProvider):
+                if identity not in validated:
+                    validated[identity] = check_reasoning_selection(
+                        client, model, effort,
+                        vision_data_uri=_build_vision_probe_data_uri() if route == "vision" else None,
+                    )
+                check.update(validated[identity])
+                reasoning[route] = {"effort": effort, "accepted_effort": effort,
+                                    "supported_efforts": [], "status": "request_accepted",
+                                    "message": "已验证所选请求参数；其他级别、实际推理强度及完整工具链尚未验证。"}
+            else:
+                reasoning[route] = {"effort": None, "supported_efforts": [], "status": "unavailable",
+                                    "message": "该接口未提供可验证的思考级别，使用模型默认设置"}
+                if effort:
+                    check.update(success=False, error="该接口未提供可验证的思考级别")
+                else:
+                    if identity not in validated:
+                        validated[identity] = (validate_vision_model(target_provider, key, url, model, label)
+                                               if route == "vision" else
+                                               validate_text_model(target_provider, key, url, model, label))
+                    check.update(validated[identity])
+        except Exception as error:
+            # 不回传网络异常正文，避免凭据和网关地址进入页面或持久化诊断。
+            check["error"] = f"模型验证失败：{type(error).__name__}"
+            reasoning.setdefault(route, {"effort": effort, "supported_efforts": [], "status": "error",
+                                         "message": "能力验证失败，请检查连接后重试"})
+        check["latency"] = round((time.perf_counter() - started) * 1000, 2)
+        checks.append(check)
+    failed = [check for check in checks if not check["success"]]
+    details = {"checks": checks, "reasoning": reasoning,
+               "latency": round(sum(check.get("latency", 0) for check in checks), 2), "reused": False}
+    return {"valid": not failed,
+            "error": "；".join(f"{check['label']}: {check.get('error') or '验证失败'}" for check in failed),
+            "details": details,
+            "validation_token": (sign_config_validation(user_id=user_id, fingerprint=fingerprint, details=details)
+                                 if not failed else None)}
+
+
 @router.post("/save")
 async def save_config(
     req: ConfigSaveRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    validation = await run_in_threadpool(_validate_model_config, req, db, current_user.id, for_save=True)
+    if not validation["valid"]:
+        return {"status": "error", **validation}
     try:
         active_config = config_manager.get_active_config(db, current_user.id)
         normalized_main_provider = normalize_provider(req.provider)
         existing_meta = normalize_metadata(active_config)
-        if req.api_key is None:
-            resolved_api_key = resolve_api_key(normalized_main_provider, None, active_config)
-        else:
-            resolved_api_key = req.api_key
+        resolved_api_key = resolve_api_key(normalized_main_provider, req.api_key, active_config)
         resolved_base_url = resolve_base_url(normalized_main_provider, req.base_url, active_config)
         turbo_follow_main = bool(req.turbo_follow_main if req.turbo_follow_main is not None else True)
         review_follow_main = bool(req.review_follow_main if req.review_follow_main is not None else True)
@@ -366,6 +348,8 @@ async def save_config(
                 ocr_warning = "未检测到本地 OCR 引擎，建议改用云端 OCR 或安装本地 OCR 模块（Tesseract）。"
         metadata_info = {
             **existing_meta,
+            "reasoning": validation["details"]["reasoning"],
+            "validation_token": validation["validation_token"],
             "targets": {
                 "turbo": {
                     "follow_main": turbo_follow_main,
@@ -409,6 +393,7 @@ async def save_config(
         return {
             "status": "success",
             "id": new_config.id,
+            "details": validation["details"],
             "ocr_auto_detected": bool(auto_detected_path),
             "tesseract_path": tesseract_path,
             "ocr_warning": ocr_warning,

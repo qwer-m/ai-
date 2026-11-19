@@ -1,11 +1,13 @@
 ﻿class APIError extends Error {
   status: number;
   data: unknown;
+  request: { method: string; url: string };
 
-  constructor(message: string, status: number, data: unknown) {
+  constructor(message: string, status: number, data: unknown, method: string, url: string) {
     super(message);
     this.status = status;
     this.data = data;
+    this.request = { method, url };
   }
 }
 
@@ -66,6 +68,15 @@ export function getErrorText(error: unknown): string {
   return extractErrorMessage(error);
 }
 
+export function getApiRequestErrorText(error: unknown): string {
+  const message = getErrorText(error);
+  if (!(error instanceof APIError)) return message;
+  const path = error.request.url.split(/[?#]/, 1)[0];
+  const detail = message === 'Internal Server Error' ? '服务器处理请求失败' : message;
+  const status = error.status === 0 ? '网络错误' : `HTTP ${error.status}`;
+  return `${detail}（${status} · ${error.request.method} ${path}）`;
+}
+
 function getAuthToken(): string | null {
   const token = localStorage.getItem('token');
   return token?.trim() || null;
@@ -97,6 +108,7 @@ function parseResponseText(rawText: string): unknown {
 
 async function request<T>(url: string, options: RequestInit = {}): Promise<T> {
   const config = buildRequestConfig(options, true);
+  const method = (config.method || 'GET').toUpperCase();
 
   try {
     const response = await fetch(url, config);
@@ -110,11 +122,11 @@ async function request<T>(url: string, options: RequestInit = {}): Promise<T> {
 
     if (!response.ok) {
       const message = extractErrorMessage(data, response.statusText);
-      throw new APIError(message, response.status, data);
+      throw new APIError(message, response.status, data, method, url);
     }
     
     if (isRecord(data) && data.error) {
-      throw new APIError(extractErrorMessage(data), 200, data);
+      throw new APIError(extractErrorMessage(data), response.status, data, method, url);
     }
 
     return data as T;
@@ -122,7 +134,7 @@ async function request<T>(url: string, options: RequestInit = {}): Promise<T> {
     if (error instanceof APIError) {
       throw error;
     }
-    throw new Error(error instanceof Error ? error.message : String(error));
+    throw new APIError(error instanceof Error ? error.message : String(error), 0, null, method, url);
   }
 }
 
@@ -143,7 +155,7 @@ async function requestRaw(url: string, options: RequestInit = {}): Promise<Respo
         : (typeof data === 'string' && data.trim()
             ? data
             : extractErrorMessage(data, response.statusText));
-    throw new APIError(message, response.status, data);
+    throw new APIError(message, response.status, data, (config.method || 'GET').toUpperCase(), url);
   }
   return response;
 }

@@ -41,17 +41,21 @@ function isBoundedText(value: unknown, maxLength: number): value is string {
 
 function isTextList(value: unknown): value is string[] {
   return Array.isArray(value)
-    && value.every((item) => isBoundedText(item, 300));
+    && value.every((item) => typeof item === 'string' && item.trim().length > 0);
+}
+
+function isNullableRatio(value: unknown): value is number | null {
+  return value === null || isRatio(value);
 }
 
 function isQualityMetrics(value: unknown): value is QualityMetrics {
-  if (!isRecord(value) || !hasExactKeys(value, ['precision', 'recall', 'f1_score', 'semantic_similarity'])) {
+  if (!isRecord(value) || !hasExactKeys(value, ['precision', 'recall', 'f1_score', 'coverage_jaccard'])) {
     return false;
   }
-  return isRatio(value.precision)
-    && isRatio(value.recall)
-    && isRatio(value.f1_score)
-    && isRatio(value.semantic_similarity);
+  return isNullableRatio(value.precision)
+    && isNullableRatio(value.recall)
+    && isNullableRatio(value.f1_score)
+    && isNullableRatio(value.coverage_jaccard);
 }
 
 function isDefectAnalysis(value: unknown): value is DefectAnalysis {
@@ -65,7 +69,7 @@ function isDefectAnalysis(value: unknown): value is DefectAnalysis {
 
 function isRequirementBaseline(value: unknown): value is RequirementBaseline {
   const keys = [
-    'requirement_points',
+    'groups', 'requirement_points',
     'ai_requirement_gaps',
     'human_requirement_gaps',
     'ai_unanchored_points',
@@ -79,7 +83,13 @@ function isRequirementBaseline(value: unknown): value is RequirementBaseline {
     'summary',
   ];
   if (!isRecord(value) || !hasExactKeys(value, keys)) return false;
-  return isTextList(value.requirement_points)
+  return Array.isArray(value.groups) && value.groups.every((g) =>
+    isRecord(g) && typeof g.point === 'string' && typeof g.reason === 'string'
+    && typeof g.excluded === 'boolean' && typeof g.difference === 'string'
+    && ['full', 'partial', 'missing'].includes(String(g.agent))
+    && ['full', 'partial', 'missing'].includes(String(g.manual))
+    && isTextList(g.case_ids) && isTextList(g.manual_refs))
+    && isTextList(value.requirement_points)
     && isTextList(value.ai_requirement_gaps)
     && isTextList(value.human_requirement_gaps)
     && isTextList(value.ai_unanchored_points)
@@ -88,8 +98,8 @@ function isRequirementBaseline(value: unknown): value is RequirementBaseline {
     && isTextList(value.covered_by_both)
     && isNonNegativeInteger(value.generated_coverage_count)
     && isNonNegativeInteger(value.modified_coverage_count)
-    && isRatio(value.generated_coverage_rate)
-    && isRatio(value.modified_coverage_rate)
+    && isNullableRatio(value.generated_coverage_rate)
+    && isNullableRatio(value.modified_coverage_rate)
     && isBoundedText(value.summary, REPORT_SUMMARY_MAX_LENGTH);
 }
 
@@ -206,6 +216,31 @@ function isGeneratedTestCase(value: unknown): value is GeneratedTestCase {
     && value.tags.every((item) => typeof item === 'string');
 }
 
+export function readTestEvaluationArtifact(
+  run: AgentRun, sourceRunId: number, evaluationRunId?: number,
+): TestEvaluationArtifact | null {
+  const artifacts = run.run_context.artifacts;
+  if (!isRecord(artifacts) || artifacts.test_evaluation === undefined) return null;
+  const evaluation = artifacts.test_evaluation;
+  if (!isRecord(evaluation)
+    || evaluation.project_id !== run.project_id
+    || evaluation.source_run_id !== sourceRunId
+    || !isNonNegativeInteger(evaluation.evaluation_run_id) || evaluation.evaluation_run_id < 1
+    || (evaluationRunId !== undefined && evaluation.evaluation_run_id !== evaluationRunId)
+    || typeof evaluation.reference_content !== 'string'
+    || !isQualityReportPayload(evaluation.evaluation)
+    || !isRecord(evaluation.upload)
+    || typeof evaluation.upload.filename !== 'string'
+  ) throw new Error(`Run ${run.id} 的质量评估产物格式或运行身份无效`);
+  return {
+    source_run_id: sourceRunId,
+    evaluation_run_id: evaluation.evaluation_run_id,
+    reference_content: evaluation.reference_content,
+    evaluation: evaluation.evaluation,
+    upload: { filename: evaluation.upload.filename },
+  };
+}
+
 function toEvaluationRunRecord(run: AgentRun): EvaluationRunRecord | null {
   const artifacts = run.run_context.artifacts;
   if (artifacts === undefined) return null;
@@ -220,21 +255,7 @@ function toEvaluationRunRecord(run: AgentRun): EvaluationRunRecord | null {
     || testGenerationArtifact.case_count !== testGenerationArtifact.test_cases.length
   ) throw new Error(`Run ${run.id} 的测试用例产物格式无效`);
 
-  let evaluationArtifact: TestEvaluationArtifact | null = null;
-  const evaluation = artifacts.test_evaluation;
-  if (evaluation !== undefined) {
-    if (!isRecord(evaluation)
-      || typeof evaluation.reference_content !== 'string'
-      || !isQualityReportPayload(evaluation.evaluation)
-      || !isRecord(evaluation.upload)
-      || typeof evaluation.upload.filename !== 'string'
-    ) throw new Error(`Run ${run.id} 的质量评估产物格式无效`);
-    evaluationArtifact = {
-      reference_content: evaluation.reference_content,
-      evaluation: evaluation.evaluation,
-      upload: { filename: evaluation.upload.filename },
-    };
-  }
+  const evaluationArtifact = readTestEvaluationArtifact(run, run.id);
   return {
     run_id: run.id,
     project_id: run.project_id,
@@ -253,7 +274,7 @@ function toEvaluationRunRecord(run: AgentRun): EvaluationRunRecord | null {
 }
 
 export async function fetchAgentRunHistory(projectId: number): Promise<EvaluationRunRecord[]> {
-  const runs = await getAgentRuns(projectId, { limit: 200 });
+  const runs = await getAgentRuns(projectId, { limit: 200, workflowKey: 'test_generation' });
   return runs
     .map(toEvaluationRunRecord)
     .filter((record): record is EvaluationRunRecord => record !== null);

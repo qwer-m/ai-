@@ -14,10 +14,45 @@ from core.ai.providers.base import BaseModelProvider
 
 
 class DashScopeProvider(BaseModelProvider):
+    def _call(self, function, **kwargs):
+        """凭据随请求传递；仅保存供应商实际回执，不计算本地费用。"""
+        kwargs["api_key"] = self.api_key
+        kwargs.setdefault("max_tokens", self._max_output_tokens_default)
+        self.last_response_metadata = {}
+
+        def observe(response):
+            usage = getattr(response, "usage", None)
+            if usage is not None:
+                self.last_response_metadata["usage"] = usage
+            self.last_response_metadata.update({
+                "http_status": getattr(response, "status_code", None),
+                "provider_request_id": getattr(response, "request_id", None),
+            })
+            return response
+
+        if kwargs.get("stream"):
+            def iterate():
+                responses = function(**kwargs)
+                try:
+                    for response in responses:
+                        yield observe(response)
+                finally:
+                    close = getattr(responses, "close", None)
+                    if close is not None:
+                        close()
+            return iterate()
+        return observe(function(**kwargs))
+
+    def _generation_call(self, **kwargs):
+        return self._call(dashscope.Generation.call, **kwargs)
+
+    def _multimodal_request(self, **kwargs):
+        return self._call(dashscope.MultiModalConversation.call, **kwargs)
+
     def __init__(self, api_key: str):
         self.api_key = api_key
-        dashscope.api_key = api_key
-        dashscope.base_http_api_url = "https://dashscope.aliyuncs.com/api/v1"
+        # 凭据跟随本次调用，不能由另一个用户构造客户端时覆盖进程全局密钥。
+        self.base_url = "https://dashscope.aliyuncs.com/api/v1"
         self._max_output_tokens_default = 4096
 
     def _is_multimodal_model(self, model: str) -> bool:
@@ -113,7 +148,7 @@ class DashScopeProvider(BaseModelProvider):
     ) -> str:
         try:
             normalized_messages = self._normalize_multimodal_messages(messages)
-            response = dashscope.MultiModalConversation.call(model=model, messages=normalized_messages)
+            response = self._multimodal_request(model=model, messages=normalized_messages)
 
             if response.status_code == HTTPStatus.OK:
                 text = self._extract_multimodal_text(response)
@@ -148,72 +183,6 @@ class DashScopeProvider(BaseModelProvider):
 
     def _format_quota_message(self, model: str) -> str:
         return f"[额度耗尽] 模型 {model} 的免费额度已用完，请在控制台关闭'仅使用免费额度'模式或充值。"
-
-    def test_connection_text_then_multimodal(self, model: str) -> Dict[str, Any]:
-        """
-        Validation path for the text-model input box:
-        first try text API, and only if that fails, try multimodal API with text-only content.
-        """
-        start_time = time.time()
-        target_model = (model or "").strip() or settings.MODEL_NAME
-        if not target_model:
-            latency = (time.time() - start_time) * 1000
-            return {
-                "success": False,
-                "error": {"message": "model_name is required"},
-                "latency": round(latency, 2),
-            }
-
-        try:
-            response = dashscope.Generation.call(
-                model=target_model,
-                messages=[{"role": "user", "content": "hi"}],
-                result_format="message",
-                max_tokens=5,
-            )
-            if response.status_code == HTTPStatus.OK:
-                latency = (time.time() - start_time) * 1000
-                return {
-                    "success": True,
-                    "latency": round(latency, 2),
-                    "model_info": {"model": target_model, "mode": "text"},
-                    "sample_response": response.output.choices[0]["message"]["content"],
-                }
-
-            if self._is_quota_or_payment_code(str(response.code or "")):
-                latency = (time.time() - start_time) * 1000
-                return {
-                    "success": False,
-                    "error": {"message": self._format_quota_message(target_model), "code": response.code},
-                    "latency": round(latency, 2),
-                    "model_info": {"model": target_model, "mode": "text"},
-                }
-
-            first_error = f"Error: {response.code} - {response.message}"
-        except Exception as e:
-            first_error = f"Exception occurred: {str(e)}"
-
-        second_result = self._multimodal_call(
-            [{"role": "user", "content": [{"text": "hi"}]}],
-            target_model,
-        )
-        latency = (time.time() - start_time) * 1000
-        if not self._is_failure_text_output(second_result):
-            return {
-                "success": True,
-                "latency": round(latency, 2),
-                "model_info": {"model": target_model, "mode": "multimodal_text"},
-                "sample_response": second_result,
-                "detection": {"fallback_from_text": True, "text_error": first_error},
-            }
-
-        return {
-            "success": False,
-            "error": {"message": first_error},
-            "latency": round(latency, 2),
-            "model_info": {"model": target_model, "mode": "text_then_multimodal"},
-            "detection": {"fallback_from_text": True, "multimodal_error": second_result},
-        }
 
     def _clamp_max_tokens(self, model: str, max_tokens: Optional[int]) -> Optional[int]:
         _ = model
@@ -258,25 +227,11 @@ class DashScopeProvider(BaseModelProvider):
             if temperature is not None:
                 kwargs["temperature"] = temperature
 
-            response = dashscope.Generation.call(**kwargs)
+            response = self._generation_call(**kwargs)
 
             if response.status_code == HTTPStatus.OK:
                 return response.output.choices[0]["message"]["content"]
 
-            if response.code == "InvalidParameter" and "stream mode" in str(response.message):
-                try:
-                    full_text = ""
-                    for chunk in self.generate_stream(messages, model, max_tokens):
-                        if (
-                            chunk.startswith("Error:")
-                            or chunk.startswith("Exception")
-                            or chunk.startswith("[额度耗尽]")
-                        ):
-                            return chunk
-                        full_text += chunk
-                    return full_text
-                except Exception as e:
-                    return f"Exception during stream fallback: {str(e)}"
 
             if response.code == "DataInspectionFailed":
                 return f"Error: Content blocked by safety filter. {response.message}"
@@ -313,7 +268,7 @@ class DashScopeProvider(BaseModelProvider):
             if temperature is not None:
                 kwargs["temperature"] = temperature
 
-            responses = dashscope.Generation.call(**kwargs)
+            responses = self._generation_call(**kwargs)
 
             for response in responses:
                 if response.status_code == HTTPStatus.OK:
@@ -394,7 +349,7 @@ class DashScopeProvider(BaseModelProvider):
             }
 
         try:
-            response = dashscope.Generation.call(
+            response = self._generation_call(
                 model=test_model,
                 messages=[{"role": "user", "content": "hi"}],
                 result_format="message",

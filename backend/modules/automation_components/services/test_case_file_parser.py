@@ -54,29 +54,46 @@ def parse_test_cases_spreadsheet_bytes(filename: str, content_bytes: bytes) -> l
         return []
 
     header_markers = _case_table_header_markers()
-    all_rows: list[list[str]] = []
-    if lowered.endswith(".xlsx"):
-        try:
+    try:
+        if lowered.endswith(".xlsx"):
             import openpyxl
 
-            workbook = openpyxl.load_workbook(io.BytesIO(content_bytes), data_only=True)
-            for sheet in workbook.worksheets:
-                for row in sheet.iter_rows(values_only=True):
-                    all_rows.append([_cell_text(cell) for cell in row])
-        except Exception:
-            all_rows = []
+            workbook = openpyxl.load_workbook(io.BytesIO(content_bytes), read_only=True, data_only=True)
+            try:
+                result = []
+                for sheet in workbook.worksheets:
+                    # 部分真实工作簿错误声明 A1:A1，按存储的实际行读取。
+                    sheet.reset_dimensions()
+                    result.extend(_parse_case_table_rows(list(sheet.values), header_markers=header_markers))
+                return result
+            finally:
+                workbook.close()
+        import pandas as pd
 
-    if not all_rows:
-        try:
-            import pandas as pd
+        sheets = pd.read_excel(io.BytesIO(content_bytes), sheet_name=None, header=None)
+        return [case for sheet in sheets.values()
+                for case in _parse_case_table_rows(sheet.fillna("").values.tolist(), header_markers=header_markers)]
+    except Exception:
+        # 各格式读取器的解析错误统一由调用方按无有效用例处理。
+        return []
 
-            sheets = pd.read_excel(io.BytesIO(content_bytes), sheet_name=None, header=None)
-            for sheet in sheets.values():
-                all_rows.extend(sheet.fillna("").astype(str).values.tolist())
-        except Exception:
-            return []
 
-    return _parse_case_table_rows(all_rows, header_markers=header_markers)
+def evaluation_spreadsheet_reference(filename: str, content: bytes) -> str:
+    """保留人工用例的原始步骤和结果，仅从执行状态列判定跳过。"""
+    rows = [row for row in parse_test_cases_spreadsheet_bytes(filename, content)
+            if (row.get("description") or row.get("id")) and (row.get("steps") or row.get("expected_result"))]
+    if not rows:
+        raise ValueError("表格未识别到包含标题和步骤或预期结果的有效用例")
+    statuses = {"PASS", "FAIL", "SKIP", "SKIPPED", "BLOCKED", "PENDING", "通过", "失败", "跳过", "未执行", "阻塞"}
+    extra = {key for row in rows for key in row if key not in _CASE_FIELDS}
+    columns = [key for key in extra if
+               {str(row[key]).strip().upper() for row in rows if row.get(key)} <= statuses]
+    entries = []
+    for number, row in enumerate(rows, 1):
+        values = [str(row[key]).strip().upper() for key in columns if row.get(key)]
+        entries.append({"ref": f"H{number}", "skipped": bool(values) and all(
+            value in {"SKIP", "SKIPPED", "跳过"} for value in values), "content": row})
+    return json.dumps({"manual_cases": entries}, ensure_ascii=False, separators=(",", ":"))
 
 
 def _parse_json_cases(text: str) -> list[dict[str, Any]]:
@@ -133,6 +150,8 @@ def _parse_case_table_rows(rows: list[list[Any]], *, header_markers: set[str] | 
     headers = [_text(cell).strip() for cell in rows[header_index]]
     parsed_cases: list[dict[str, Any]] = []
     for row in rows[header_index + 1 :]:
+        if [_text(value) for value in row] == headers:
+            continue
         raw: dict[str, Any] = {}
         for header, value in zip(headers, row):
             key = _text(header).strip()

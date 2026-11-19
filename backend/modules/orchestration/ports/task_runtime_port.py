@@ -10,7 +10,7 @@ class TaskRuntimePort(ABC):
     """Port for task queue operations used by routers and domain services."""
 
     @abstractmethod
-    def dispatch(self, *, task_name: str, kwargs: dict[str, Any] | None = None) -> str:
+    def dispatch(self, *, task_name: str, kwargs: dict[str, Any] | None = None, task_id: str | None = None) -> str:
         """Queue a task and return task id."""
 
     @abstractmethod

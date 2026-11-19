@@ -1,0 +1,82 @@
+{
+  "run": {
+    "id": 65,
+    "status": "failed",
+    "run_context": {
+      "deadline_at": "2026-11-16T03:23:10.768263",
+      "stage_deadline_at": "2026-11-16T02:45:59.784664",
+      "execution_contract": {
+        "agents": [
+          {
+            "key": "test_generation_coordinator",
+            "runtime_config": {
+              "max_turns": 24,
+              "request_timeout_seconds": 180
+            }
+          },
+          {
+            "key": "test_generation_reviewer",
+            "runtime_config": {
+              "max_turns": 3,
+              "request_timeout_seconds": 180
+            }
+          }
+        ]
+      }
+    }
+  },
+  "nodes": [
+    {
+      "sdk_state": {
+        "model_requests": [
+          {
+            "status": "response_received",
+            "started_at": "2026-11-16T02:23:15.351413+00:00",
+            "elapsed_seconds": 3.085
+          },
+          {
+            "status": "response_received",
+            "started_at": "2026-11-16T02:23:18.540307+00:00",
+            "elapsed_seconds": 39.967
+          },
+          {
+            "status": "ended_without_model_response",
+            "started_at": "2026-11-16T02:23:58.685072+00:00",
+            "elapsed_seconds": 120.069
+          }
+        ]
+      }
+    },
+    {
+      "sdk_state": {
+        "model_requests": [
+          {
+            "status": "response_received",
+            "started_at": "2026-11-16T02:26:02.606809+00:00",
+            "elapsed_seconds": 2.036
+          },
+          {
+            "status": "response_received",
+            "started_at": "2026-11-16T02:26:04.746024+00:00",
+            "elapsed_seconds": 37.463
+          },
+          {
+            "status": "response_received",
+            "started_at": "2026-11-16T02:26:42.362591+00:00",
+            "elapsed_seconds": 35.076
+          },
+          {
+            "status": "response_received",
+            "started_at": "2026-11-16T02:27:17.557582+00:00",
+            "elapsed_seconds": 2.365
+          },
+          {
+            "status": "response_received",
+            "started_at": "2026-11-16T02:27:20.061339+00:00",
+            "elapsed_seconds": 34.19
+          }
+        ]
+      }
+    }
+  ]
+}

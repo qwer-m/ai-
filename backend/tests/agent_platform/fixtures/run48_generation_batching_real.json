@@ -1,0 +1,5388 @@
+{
+  "source_run_id": 48,
+  "source_node_id": 389,
+  "source_snapshot": "output/qa/2026-11-11-single-real-round.final-snapshot.json",
+  "source_snapshot_sha256": "9e46e10534de01d70ada82377067059abde175bbe376621abd1d90816cbb9719",
+  "source_state_sha256": "6c98de7945719b844dbbc68fb581f3414bbbaca158b7139f8aa64e9d9281694d",
+  "input_payload": {
+    "plan": {
+      "business_modules": [
+        {
+          "actors": [
+            "销售"
+          ],
+          "lifecycle": null,
+          "name": "机构类型、分销层级与门店归属",
+          "objective": "验证机构类型、分销层级、机构与门店归属关系、数量约束及门店新增方式。",
+          "test_points": [
+            {
+              "name": "机构类型与门店新增权限",
+              "objective": "核对三类机构的新建类型确定、平台归属、门店持有及销售代新增限制。",
+              "test_designs": [
+                {
+                  "rationale": "按机构类型组合核对层级、门店持有及新增权限。",
+                  "technique": "判定表",
+                  "coverage_items": [
+                    "验证机构类型包括普通机构、一级分销机构和二级分销机构，并在新建机构时确定。",
+                    "验证普通机构直接归属平台、持有门店，且门店随机构开通产生。",
+                    "验证一级分销机构是二级分销机构的上级，自身不持有门店且门店新增方式不适用。",
+                    "验证二级分销机构隶属一个一级分销机构并持有门店，门店由销售代为操作且机构不自助新增。"
+                  ]
+                }
+              ]
+            },
+            {
+              "name": "分销归属与门店数量约束",
+              "objective": "验证分销层级、一对多与唯一归属、二级机构固定单门店及一级门店数量不单列。",
+              "test_designs": [
+                {
+                  "rationale": "按机构层级验证归属、数量及展示规则。",
+                  "technique": "判定表",
+                  "coverage_items": [
+                    "验证分销层级依次为平台、一级分销机构、二级分销机构和门店。",
+                    "验证一个二级分销机构只能隶属一个一级分销机构，且一个一级分销机构可以拥有多个二级分销机构。",
+                    "验证每个二级分销机构固定只有一个门店，一级分销机构名下门店数等于其名下二级分销机构数量。",
+                    "验证二级分销机构的门店由销售代为新增，机构不自助新增。",
+                    "验证普通机构不参与分销层级，其门店直接归属该机构。",
+                    "验证界面不再单独展示一级分销机构名下门店数量。"
+                  ]
+                }
+              ]
+            }
+          ],
+          "evidence_ids": [
+            "EV-0003",
+            "EV-0015",
+            "EV-0001",
+            "EV-0007",
+            "EV-0019"
+          ],
+          "fact_ids": [
+            "DOC288-P0002-f1",
+            "DOC288-P0002-f2",
+            "DOC288-P0002-f3",
+            "DOC288-P0002-f4",
+            "DOC288-P0002-f5",
+            "DOC288-P0002-f6",
+            "DOC288-P0002-f7",
+            "DOC288-P0002-f8",
+            "DOC288-P0002-f9",
+            "DOC288-P0002-f10",
+            "DOC288-P0002-f11",
+            "DOC288-P0002-f12",
+            "DOC288-P0002-f13",
+            "DOC288-P0002-f14",
+            "DOC288-P0002-f15",
+            "DOC288-P0002-f17",
+            "DOC288-P0007-S0-E553-F288-002",
+            "DOC288-P0007-S0-E553-F288-010",
+            "DOC288-P0007-S554-E589-F288-007-001",
+            "DOC288-P0001-f7",
+            "DOC288-P0004-f3",
+            "DOC288-P0004-f4",
+            "DOC288-P0004-f9",
+            "DOC288-P0009-f1",
+            "DOC288-P0002-f16"
+          ],
+          "fact_design_routes": [
+            {
+              "fact_id": "DOC288-P0002-f1",
+              "test_design_item_indexes": [
+                0
+              ]
+            },
+            {
+              "fact_id": "DOC288-P0002-f2",
+              "test_design_item_indexes": [
+                1
+              ]
+            },
+            {
+              "fact_id": "DOC288-P0002-f3",
+              "test_design_item_indexes": [
+                1
+              ]
+            },
+            {
+              "fact_id": "DOC288-P0002-f4",
+              "test_design_item_indexes": [
+                1
+              ]
+            },
+            {
+              "fact_id": "DOC288-P0002-f5",
+              "test_design_item_indexes": []
+            },
+            {
+              "fact_id": "DOC288-P0002-f6",
+              "test_design_item_indexes": [
+                2
+              ]
+            },
+            {
+              "fact_id": "DOC288-P0002-f7",
+              "test_design_item_indexes": [
+                2
+              ]
+            },
+            {
+              "fact_id": "DOC288-P0002-f8",
+              "test_design_item_indexes": [
+                3
+              ]
+            },
+            {
+              "fact_id": "DOC288-P0002-f9",
+              "test_design_item_indexes": [
+                3
+              ]
+            },
+            {
+              "fact_id": "DOC288-P0002-f10",
+              "test_design_item_indexes": [
+                3,
+                7
+              ]
+            },
+            {
+              "fact_id": "DOC288-P0002-f11",
+              "test_design_item_indexes": [
+                4
+              ]
+            },
+            {
+              "fact_id": "DOC288-P0002-f12",
+              "test_design_item_indexes": [
+                5
+              ]
+            },
+            {
+              "fact_id": "DOC288-P0002-f13",
+              "test_design_item_indexes": [
+                5
+              ]
+            },
+            {
+              "fact_id": "DOC288-P0002-f14",
+              "test_design_item_indexes": [
+                6
+              ]
+            },
+            {
+              "fact_id": "DOC288-P0002-f15",
+              "test_design_item_indexes": [
+                6
+              ]
+            },
+            {
+              "fact_id": "DOC288-P0002-f17",
+              "test_design_item_indexes": [
+                8
+              ]
+            },
+            {
+              "fact_id": "DOC288-P0007-S0-E553-F288-002",
+              "test_design_item_indexes": []
+            },
+            {
+              "fact_id": "DOC288-P0007-S0-E553-F288-010",
+              "test_design_item_indexes": []
+            },
+            {
+              "fact_id": "DOC288-P0007-S554-E589-F288-007-001",
+              "test_design_item_indexes": []
+            },
+            {
+              "fact_id": "DOC288-P0001-f7",
+              "test_design_item_indexes": []
+            },
+            {
+              "fact_id": "DOC288-P0004-f3",
+              "test_design_item_indexes": []
+            },
+            {
+              "fact_id": "DOC288-P0004-f4",
+              "test_design_item_indexes": []
+            },
+            {
+              "fact_id": "DOC288-P0004-f9",
+              "test_design_item_indexes": []
+            },
+            {
+              "fact_id": "DOC288-P0009-f1",
+              "test_design_item_indexes": []
+            },
+            {
+              "fact_id": "DOC288-P0002-f16",
+              "test_design_item_indexes": [
+                9
+              ]
+            }
+          ],
+          "design_supports": [
+            {
+              "test_design_item_index": 0,
+              "fact_ids": [
+                "DOC288-P0002-f1"
+              ],
+              "review_input_sha256": "ebb5674a5b0747d4174c15590dc44d94c5cd3175405cf0073df33ead3b8e277e"
+            },
+            {
+              "test_design_item_index": 1,
+              "fact_ids": [
+                "DOC288-P0002-f2",
+                "DOC288-P0002-f3",
+                "DOC288-P0002-f4"
+              ],
+              "review_input_sha256": "049f904f28c5a9962494ed43d2f16913ce0e4a7c61d93c1b07680ee5cde38b09"
+            },
+            {
+              "test_design_item_index": 2,
+              "fact_ids": [
+                "DOC288-P0002-f6",
+                "DOC288-P0002-f7"
+              ],
+              "review_input_sha256": "9ff1ee203274b5214805b58a56aa7a5508d7480e3ad2373f0f1b93d8a6822fed"
+            },
+            {
+              "test_design_item_index": 3,
+              "fact_ids": [
+                "DOC288-P0002-f9",
+                "DOC288-P0002-f8",
+                "DOC288-P0002-f10"
+              ],
+              "review_input_sha256": "90568978d7b57379fad45f20a64b257a86087f3d7030404044ef504997b4e66e"
+            },
+            {
+              "test_design_item_index": 4,
+              "fact_ids": [
+                "DOC288-P0002-f11"
+              ],
+              "review_input_sha256": "ea288dd767468810210497449d5ebc12425685c28f27cb11e523b57d6472ee84"
+            },
+            {
+              "test_design_item_index": 5,
+              "fact_ids": [
+                "DOC288-P0002-f12",
+                "DOC288-P0002-f13"
+              ],
+              "review_input_sha256": "0fdb64c670ece41c74f83b2a6a9eabed362176ecd3f7709ea9e2e970f3123a98"
+            },
+            {
+              "test_design_item_index": 6,
+              "fact_ids": [
+                "DOC288-P0002-f14",
+                "DOC288-P0002-f15"
+              ],
+              "review_input_sha256": "9a45e755057a9c55cd54b4e01c2e3eaac360002331a5909a36eb86657649c029"
+            },
+            {
+              "test_design_item_index": 7,
+              "fact_ids": [
+                "DOC288-P0002-f10"
+              ],
+              "review_input_sha256": "4ad77f2ea703d575f5639dab3fca8bc81c377444cbb7e32540d38d843e24a2f5"
+            },
+            {
+              "test_design_item_index": 8,
+              "fact_ids": [
+                "DOC288-P0002-f17"
+              ],
+              "review_input_sha256": "a2cd87cc95adbc155b4888646a8e06e0daf20ac616f5b3737cb0922f64a1925e"
+            },
+            {
+              "test_design_item_index": 9,
+              "fact_ids": [
+                "DOC288-P0002-f16"
+              ],
+              "review_input_sha256": "f14d042efb8990d675916a34dbae9434364153b6a21921da881ebaeba625bba6"
+            }
+          ]
+        },
+        {
+          "actors": [],
+          "lifecycle": null,
+          "name": "一级分销机构创建与机构信息",
+          "objective": "验证一级分销机构专属创建、关联信息、字段含义、机构ID及创建规则。",
+          "test_points": [
+            {
+              "name": "专属创建页面与H5入口",
+              "objective": "验证专属一级机构创建页、关联副标题、H5入口及不提供的字段。",
+              "test_designs": [
+                {
+                  "rationale": "按入口和字段允许或排除范围核对页面。",
+                  "technique": "等价类",
+                  "coverage_items": [
+                    "验证原通用新建机构页面改为专属的新建一级分销机构页面，副标题为“关联线索与普通机构”，且H5同步提供。",
+                    "验证新建一级分销机构页面不提供类型选择、所属一级、地址、规模、学段和学科字段。"
+                  ]
+                }
+              ]
+            },
+            {
+              "name": "分销机构关联及创建页面调整",
+              "objective": "核对二级机构关联一级展示、单门店限制、一级详情门店数量隐藏及新增关联字段。",
+              "test_designs": [
+                {
+                  "rationale": "串联分销关联展示与专属创建字段检查。",
+                  "technique": "场景法",
+                  "coverage_items": [
+                    "验证机构列表中二级分销机构条目直接展示关联的一级分销机构。",
+                    "验证每个二级分销机构固定一个门店，一级分销机构详情不再展示门店数量。",
+                    "验证新建机构页面改为专属的新建一级分销机构页面，并新增关联线索和关联普通机构字段。"
+                  ]
+                }
+              ]
+            },
+            {
+              "name": "机构基本字段与已有信息关联",
+              "objective": "验证名称简称联系信息含义、来源线索与普通机构下拉选择及已有信息直接读取。",
+              "test_designs": [
+                {
+                  "rationale": "区分已有和待选择关联信息，核对字段来源与读取方式。",
+                  "technique": "等价类",
+                  "coverage_items": [
+                    "核对名称表示机构全称，简称表示机构简称，联系人和电话分别表示机构联系人及联系电话。",
+                    "通过下拉框从已有线索中选择机构的来源线索；已有时无需编辑，直接读取。",
+                    "通过下拉框从已存在的普通机构中选择以建立关联；已有时无需编辑，直接读取。"
+                  ]
+                }
+              ]
+            },
+            {
+              "name": "创建结果、收费规则与缴费用途",
+              "objective": "验证创建操作和ID生成、一级无门店且免费、二级单店充值10000元由一级承担、合作方案类型及两类缴费入口明确用途。",
+              "test_designs": [
+                {
+                  "rationale": "结合创建结果与门店充值场景核对收费和入口，不推断一级合作方案开通入口。",
+                  "technique": "场景法",
+                  "coverage_items": [
+                    "验证页面底部提供“‹返回”和“确定”，点击“确定”完成创建；机构ID由系统生成。",
+                    "验证新建一级分销机构不产生门店；其作为管理节点自身不开放门店，名下门店只能随二级分销机构及门店新增流程产生。",
+                    "验证一级分销机构开通免费；每开通一个二级分销机构，按其固定一个门店充值10000元，由一级分销机构承担。",
+                    "验证合作方案仅开放“一级分销”类型。",
+                    "验证缴费类型弹窗由六类精简为两类；“新建二级分校机构”入口可用并用于其名下二级分销机构门店充值，“申请优惠券”入口可用并用于申请机构优惠券。"
+                  ]
+                }
+              ]
+            }
+          ],
+          "evidence_ids": [
+            "EV-0003",
+            "EV-0001",
+            "EV-0004",
+            "EV-0007",
+            "EV-0015"
+          ],
+          "fact_ids": [
+            "DOC288-P0002-f18",
+            "DOC288-P0002-f19",
+            "DOC288-P0001-f9",
+            "DOC288-P0001-f10",
+            "DOC288-P0001-f11",
+            "DOC288-P0003-f1",
+            "DOC288-P0003-f2",
+            "DOC288-P0003-f3",
+            "DOC288-P0003-f4",
+            "DOC288-P0003-f5",
+            "DOC288-P0003-f6",
+            "DOC288-P0003-f7",
+            "DOC288-P0003-f8",
+            "DOC288-P0004-f1",
+            "DOC288-P0004-f2",
+            "DOC288-P0004-f3",
+            "DOC288-P0001-f6",
+            "DOC288-P0001-f7",
+            "DOC288-P0001-f8",
+            "DOC288-P0004-f9",
+            "DOC288-P0004-f4",
+            "DOC288-P0004-f6",
+            "DOC288-P0004-f7",
+            "DOC288-P0004-f8",
+            "DOC288-P0004-f10",
+            "DOC288-P0007-S0-E553-F288-001",
+            "DOC288-P0007-S0-E553-F288-002",
+            "DOC288-P0007-S0-E553-F288-004"
+          ],
+          "fact_design_routes": [
+            {
+              "fact_id": "DOC288-P0002-f18",
+              "test_design_item_indexes": [
+                0
+              ]
+            },
+            {
+              "fact_id": "DOC288-P0002-f19",
+              "test_design_item_indexes": [
+                1
+              ]
+            },
+            {
+              "fact_id": "DOC288-P0001-f9",
+              "test_design_item_indexes": [
+                4
+              ]
+            },
+            {
+              "fact_id": "DOC288-P0001-f10",
+              "test_design_item_indexes": [
+                4
+              ]
+            },
+            {
+              "fact_id": "DOC288-P0001-f11",
+              "test_design_item_indexes": [
+                4
+              ]
+            },
+            {
+              "fact_id": "DOC288-P0003-f1",
+              "test_design_item_indexes": [
+                5
+              ]
+            },
+            {
+              "fact_id": "DOC288-P0003-f2",
+              "test_design_item_indexes": [
+                5
+              ]
+            },
+            {
+              "fact_id": "DOC288-P0003-f3",
+              "test_design_item_indexes": [
+                6
+              ]
+            },
+            {
+              "fact_id": "DOC288-P0003-f4",
+              "test_design_item_indexes": [
+                6
+              ]
+            },
+            {
+              "fact_id": "DOC288-P0003-f5",
+              "test_design_item_indexes": [
+                7
+              ]
+            },
+            {
+              "fact_id": "DOC288-P0003-f6",
+              "test_design_item_indexes": [
+                7
+              ]
+            },
+            {
+              "fact_id": "DOC288-P0003-f7",
+              "test_design_item_indexes": [
+                5
+              ]
+            },
+            {
+              "fact_id": "DOC288-P0003-f8",
+              "test_design_item_indexes": [
+                5
+              ]
+            },
+            {
+              "fact_id": "DOC288-P0004-f1",
+              "test_design_item_indexes": [
+                8
+              ]
+            },
+            {
+              "fact_id": "DOC288-P0004-f2",
+              "test_design_item_indexes": [
+                8
+              ]
+            },
+            {
+              "fact_id": "DOC288-P0004-f3",
+              "test_design_item_indexes": [
+                9
+              ]
+            },
+            {
+              "fact_id": "DOC288-P0001-f6",
+              "test_design_item_indexes": [
+                2
+              ]
+            },
+            {
+              "fact_id": "DOC288-P0001-f7",
+              "test_design_item_indexes": [
+                3
+              ]
+            },
+            {
+              "fact_id": "DOC288-P0001-f8",
+              "test_design_item_indexes": [
+                3
+              ]
+            },
+            {
+              "fact_id": "DOC288-P0004-f9",
+              "test_design_item_indexes": [
+                9
+              ]
+            },
+            {
+              "fact_id": "DOC288-P0004-f4",
+              "test_design_item_indexes": [
+                9
+              ]
+            },
+            {
+              "fact_id": "DOC288-P0004-f6",
+              "test_design_item_indexes": [
+                10
+              ]
+            },
+            {
+              "fact_id": "DOC288-P0004-f7",
+              "test_design_item_indexes": [
+                10
+              ]
+            },
+            {
+              "fact_id": "DOC288-P0004-f8",
+              "test_design_item_indexes": [
+                11
+              ]
+            },
+            {
+              "fact_id": "DOC288-P0004-f10",
+              "test_design_item_indexes": [
+                12
+              ]
+            },
+            {
+              "fact_id": "DOC288-P0007-S0-E553-F288-001",
+              "test_design_item_indexes": [
+                12
+              ]
+            },
+            {
+              "fact_id": "DOC288-P0007-S0-E553-F288-002",
+              "test_design_item_indexes": [
+                12
+              ]
+            },
+            {
+              "fact_id": "DOC288-P0007-S0-E553-F288-004",
+              "test_design_item_indexes": [
+                12
+              ]
+            }
+          ],
+          "design_supports": [
+            {
+              "test_design_item_index": 0,
+              "fact_ids": [
+                "DOC288-P0002-f18"
+              ],
+              "review_input_sha256": "2b8b121854a8e6a9c947bcdf1468b8d7ab870e67a47089d08fbb33b2eb26af52"
+            },
+            {
+              "test_design_item_index": 1,
+              "fact_ids": [
+                "DOC288-P0002-f19"
+              ],
+              "review_input_sha256": "cdaaa9262dfb87eeeba26255319f80e82ea6c0a10e4f3ce739f1c5bbbbf45922"
+            },
+            {
+              "test_design_item_index": 2,
+              "fact_ids": [
+                "DOC288-P0001-f6"
+              ],
+              "review_input_sha256": "25e8ad5bb357036f7b59a0c7e50126a2735964c665c600486ed996dce8489d8b"
+            },
+            {
+              "test_design_item_index": 3,
+              "fact_ids": [
+                "DOC288-P0001-f7",
+                "DOC288-P0001-f8"
+              ],
+              "review_input_sha256": "c825d4ffaa396e18e924838f3b207bd4d64c8d2a133fde8d557a6b4da2af004c"
+            },
+            {
+              "test_design_item_index": 4,
+              "fact_ids": [
+                "DOC288-P0001-f9",
+                "DOC288-P0001-f10",
+                "DOC288-P0001-f11"
+              ],
+              "review_input_sha256": "d033dcc10845356068e2df484f8c17354830be80c7afb09eccb25f22da059b87"
+            },
+            {
+              "test_design_item_index": 5,
+              "fact_ids": [
+                "DOC288-P0003-f1",
+                "DOC288-P0003-f2",
+                "DOC288-P0003-f7",
+                "DOC288-P0003-f8"
+              ],
+              "review_input_sha256": "7149afffdc535b3e76e31044cfc684146bc37ef35babe8490ead1ee5eaac8020"
+            },
+            {
+              "test_design_item_index": 6,
+              "fact_ids": [
+                "DOC288-P0003-f3",
+                "DOC288-P0003-f4"
+              ],
+              "review_input_sha256": "9457261e5dd062369626b7250091f46b9017e03d596a80bbd94a7daac75c2b19"
+            },
+            {
+              "test_design_item_index": 7,
+              "fact_ids": [
+                "DOC288-P0003-f5",
+                "DOC288-P0003-f6"
+              ],
+              "review_input_sha256": "32e0f68a25bbc1354e0396122e23acb34db4ac8f93e8a02c4a9c34e9333cdc53"
+            },
+            {
+              "test_design_item_index": 8,
+              "fact_ids": [
+                "DOC288-P0004-f1",
+                "DOC288-P0004-f2"
+              ],
+              "review_input_sha256": "d144f4f9bf9a3760e1d5260737909be0ab48775f46d3a91a5e9001d7776aa42f"
+            },
+            {
+              "test_design_item_index": 9,
+              "fact_ids": [
+                "DOC288-P0004-f3",
+                "DOC288-P0004-f9",
+                "DOC288-P0004-f4"
+              ],
+              "review_input_sha256": "9143c8b5e03d310d7dcef2ed323f2f907a7ba05038f0d0684d3a1e385f5c6d54"
+            },
+            {
+              "test_design_item_index": 10,
+              "fact_ids": [
+                "DOC288-P0004-f6",
+                "DOC288-P0004-f7"
+              ],
+              "review_input_sha256": "38c9cf5e94ed0c0c5915ad91e96cba304763ba257cc1202b46801a538a91306c"
+            },
+            {
+              "test_design_item_index": 11,
+              "fact_ids": [
+                "DOC288-P0004-f8"
+              ],
+              "review_input_sha256": "fc1c85a22fe25fd31d447724db3960c38b46d37bb057a78b59babad91012f150"
+            },
+            {
+              "test_design_item_index": 12,
+              "fact_ids": [
+                "DOC288-P0004-f10",
+                "DOC288-P0007-S0-E553-F288-001",
+                "DOC288-P0007-S0-E553-F288-002",
+                "DOC288-P0007-S0-E553-F288-004"
+              ],
+              "review_input_sha256": "c203153102a096ecc3805d33651c5748ae399e3f30b3763d36baee5a02b9854c"
+            }
+          ]
+        },
+        {
+          "actors": [],
+          "lifecycle": null,
+          "name": "机构创建缴费与合作方案",
+          "objective": "验证二级分销机构及门店共同创建、缴费入口、优惠券申请和合作方案配置。",
+          "test_points": [
+            {
+              "name": "二级机构门店共同创建与缴费",
+              "objective": "验证机构门店共同创建并走既有审批、预充值替代单独门店缴费、移除入口、页面字段排除及返回提交和三种支付入口。",
+              "test_designs": [
+                {
+                  "rationale": "按共同创建及预充值办理流程验证页面和支付入口。",
+                  "technique": "场景法",
+                  "coverage_items": [
+                    "验证门店跟随机构一起创建并走现有审批流程。",
+                    "验证门店新增及对应费用在新建二级分校机构中通过预充值二级分销机构门店完成，不再单独使用新增门店缴费入口。",
+                    "验证新增门店缴费、城市/区域新增门店、门店续费、新版升级代理入口及其表单从缴费类型中移除。",
+                    "验证页面底部的返回、提交及三种支付入口，以及来源列明的不涉及字段。"
+                  ]
+                }
+              ]
+            },
+            {
+              "name": "优惠券申请字段和操作",
+              "objective": "核对优惠券申请入口、类型面额数量门槛有效期理由、填写选择方式与单位及返回和支付入口。",
+              "test_designs": [
+                {
+                  "rationale": "从缴费弹窗进入申请页，完整核对内容矩阵及操作。",
+                  "technique": "场景法",
+                  "coverage_items": [
+                    "验证可从缴费类型弹窗的申请优惠券入口进入申请页面。",
+                    "验证优惠券类型、面额、申请数量、使用门槛、有效期起止及申请理由，以及各字段的选择或填写方式和单位。",
+                    "验证返回以及银行转账、扫码支付、分享支付入口。"
+                  ]
+                }
+              ]
+            },
+            {
+              "name": "缴费入口精简范围",
+              "objective": "核对入口仅保留两类，指定四类旧入口被移除。",
+              "test_designs": [
+                {
+                  "rationale": "以保留与移除两类入口验证入口集合。",
+                  "technique": "等价类",
+                  "coverage_items": [
+                    "验证缴费类型入口精简为两类，移除新增门店缴费、城市/区域新增门店、门店续费及新版升级代理入口。"
+                  ]
+                }
+              ]
+            },
+            {
+              "name": "缴费权限及新增合作方案配置",
+              "objective": "核对机构类型缴费权限、旧入口移除、新建二级分校机构进入新增合作方案页及文本地址单店预充值和系统金额字段。",
+              "test_designs": [
+                {
+                  "rationale": "按机构类型判定权限，并核对可填写、可选择与系统计算字段规则。",
+                  "technique": "判定表",
+                  "coverage_items": [
+                    "验证新增门店缴费、城市/区域新增门店、门店续费及新版升级代理入口不再展示。",
+                    "验证缴费操作仅对普通机构和一级分销机构开放，二级分销机构不开放。",
+                    "验证从缴费类型弹窗的“新建二级分校机构”入口进入“新增合作方案”页面。",
+                    "验证页面涉及机构名称、投资人姓名和投资人电话，且均为文本填写项。",
+                    "验证地址可选择城市或区域、支持修改定位，并需填写详细地址。",
+                    "验证预充值二级分销机构门店为数量步进项且页面说明只有一个；预充值门店金额由系统计算展示，不可手工填写。"
+                  ]
+                }
+              ]
+            }
+          ],
+          "evidence_ids": [
+            "EV-0015",
+            "EV-0001",
+            "EV-0007",
+            "EV-0010",
+            "EV-0011",
+            "EV-0013"
+          ],
+          "fact_ids": [
+            "DOC288-P0007-S0-E553-F288-001",
+            "DOC288-P0007-S0-E553-F288-002",
+            "DOC288-P0007-S0-E553-F288-003",
+            "DOC288-P0007-S0-E553-F288-004",
+            "DOC288-P0007-S0-E553-F288-005",
+            "DOC288-P0007-S0-E553-F288-006",
+            "DOC288-P0007-S0-E553-F288-007",
+            "DOC288-P0007-S0-E553-F288-008",
+            "DOC288-P0007-S0-E553-F288-009",
+            "DOC288-P0007-S0-E553-F288-010",
+            "DOC288-P0007-S554-E589-F288-007-001",
+            "DOC288-P0001-f1",
+            "DOC288-P0001-f2",
+            "DOC288-P0001-f3",
+            "DOC288-P0001-f4",
+            "DOC288-P0001-f5",
+            "DOC288-P0004-f6",
+            "DOC288-P0004-f7",
+            "DOC288-P0004-f8",
+            "DOC288-P0004-f10",
+            "DOC288-P0004-f11",
+            "DOC288-P0004-f12",
+            "DOC288-P0005-f1",
+            "DOC288-P0005-f2",
+            "DOC288-P0005-f3",
+            "DOC288-P0005-f4",
+            "DOC288-P0005-f5",
+            "DOC288-P0005-f6",
+            "DOC288-P0006-F001",
+            "DOC288-P0006-F002",
+            "DOC288-P0006-F003",
+            "DOC288-P0006-F004",
+            "DOC288-P0006-F005",
+            "DOC288-P0006-F006"
+          ],
+          "fact_design_routes": [
+            {
+              "fact_id": "DOC288-P0007-S0-E553-F288-001",
+              "test_design_item_indexes": [
+                3
+              ]
+            },
+            {
+              "fact_id": "DOC288-P0007-S0-E553-F288-002",
+              "test_design_item_indexes": [
+                1
+              ]
+            },
+            {
+              "fact_id": "DOC288-P0007-S0-E553-F288-003",
+              "test_design_item_indexes": [
+                3
+              ]
+            },
+            {
+              "fact_id": "DOC288-P0007-S0-E553-F288-004",
+              "test_design_item_indexes": [
+                4
+              ]
+            },
+            {
+              "fact_id": "DOC288-P0007-S0-E553-F288-005",
+              "test_design_item_indexes": [
+                5
+              ]
+            },
+            {
+              "fact_id": "DOC288-P0007-S0-E553-F288-006",
+              "test_design_item_indexes": [
+                5
+              ]
+            },
+            {
+              "fact_id": "DOC288-P0007-S0-E553-F288-007",
+              "test_design_item_indexes": [
+                5
+              ]
+            },
+            {
+              "fact_id": "DOC288-P0007-S0-E553-F288-008",
+              "test_design_item_indexes": [
+                6
+              ]
+            },
+            {
+              "fact_id": "DOC288-P0007-S0-E553-F288-009",
+              "test_design_item_indexes": [
+                2,
+                7,
+                8
+              ]
+            },
+            {
+              "fact_id": "DOC288-P0007-S0-E553-F288-010",
+              "test_design_item_indexes": []
+            },
+            {
+              "fact_id": "DOC288-P0007-S554-E589-F288-007-001",
+              "test_design_item_indexes": [
+                0
+              ]
+            },
+            {
+              "fact_id": "DOC288-P0001-f1",
+              "test_design_item_indexes": [
+                7
+              ]
+            },
+            {
+              "fact_id": "DOC288-P0001-f2",
+              "test_design_item_indexes": []
+            },
+            {
+              "fact_id": "DOC288-P0001-f3",
+              "test_design_item_indexes": []
+            },
+            {
+              "fact_id": "DOC288-P0001-f4",
+              "test_design_item_indexes": []
+            },
+            {
+              "fact_id": "DOC288-P0001-f5",
+              "test_design_item_indexes": []
+            },
+            {
+              "fact_id": "DOC288-P0004-f6",
+              "test_design_item_indexes": []
+            },
+            {
+              "fact_id": "DOC288-P0004-f7",
+              "test_design_item_indexes": []
+            },
+            {
+              "fact_id": "DOC288-P0004-f8",
+              "test_design_item_indexes": []
+            },
+            {
+              "fact_id": "DOC288-P0004-f10",
+              "test_design_item_indexes": []
+            },
+            {
+              "fact_id": "DOC288-P0004-f11",
+              "test_design_item_indexes": []
+            },
+            {
+              "fact_id": "DOC288-P0004-f12",
+              "test_design_item_indexes": []
+            },
+            {
+              "fact_id": "DOC288-P0005-f1",
+              "test_design_item_indexes": []
+            },
+            {
+              "fact_id": "DOC288-P0005-f2",
+              "test_design_item_indexes": []
+            },
+            {
+              "fact_id": "DOC288-P0005-f3",
+              "test_design_item_indexes": []
+            },
+            {
+              "fact_id": "DOC288-P0005-f4",
+              "test_design_item_indexes": []
+            },
+            {
+              "fact_id": "DOC288-P0005-f5",
+              "test_design_item_indexes": [
+                9
+              ]
+            },
+            {
+              "fact_id": "DOC288-P0005-f6",
+              "test_design_item_indexes": []
+            },
+            {
+              "fact_id": "DOC288-P0006-F001",
+              "test_design_item_indexes": [
+                10
+              ]
+            },
+            {
+              "fact_id": "DOC288-P0006-F002",
+              "test_design_item_indexes": []
+            },
+            {
+              "fact_id": "DOC288-P0006-F003",
+              "test_design_item_indexes": [
+                11
+              ]
+            },
+            {
+              "fact_id": "DOC288-P0006-F004",
+              "test_design_item_indexes": [
+                12
+              ]
+            },
+            {
+              "fact_id": "DOC288-P0006-F005",
+              "test_design_item_indexes": [
+                13
+              ]
+            },
+            {
+              "fact_id": "DOC288-P0006-F006",
+              "test_design_item_indexes": [
+                13
+              ]
+            }
+          ],
+          "design_supports": [
+            {
+              "test_design_item_index": 0,
+              "fact_ids": [
+                "DOC288-P0007-S554-E589-F288-007-001"
+              ],
+              "review_input_sha256": "e8d970ba1f22a35618895c991905fc1592b05a61286916b7f134bb53193e2e43"
+            },
+            {
+              "test_design_item_index": 1,
+              "fact_ids": [
+                "DOC288-P0007-S0-E553-F288-002"
+              ],
+              "review_input_sha256": "d5201a99e19e6d08086cdd48785bcfe7a4938e0317ec71a928c16488500f1109"
+            },
+            {
+              "test_design_item_index": 2,
+              "fact_ids": [
+                "DOC288-P0007-S0-E553-F288-009"
+              ],
+              "review_input_sha256": "7741dafd7c91f404554c95c9a44f763debbfbfb6e755bb43d57f58e77ab88066"
+            },
+            {
+              "test_design_item_index": 3,
+              "fact_ids": [
+                "DOC288-P0007-S0-E553-F288-001",
+                "DOC288-P0007-S0-E553-F288-003"
+              ],
+              "review_input_sha256": "8c2b5c83e83dc7cd25743bf767003acb39a19e2a07430d5f3da2f09facd3083a"
+            },
+            {
+              "test_design_item_index": 4,
+              "fact_ids": [
+                "DOC288-P0007-S0-E553-F288-004"
+              ],
+              "review_input_sha256": "9941f98e3a163c369965380d0b794181908417f224ae18b7653f9cf8dbae3c1a"
+            },
+            {
+              "test_design_item_index": 5,
+              "fact_ids": [
+                "DOC288-P0007-S0-E553-F288-005",
+                "DOC288-P0007-S0-E553-F288-006",
+                "DOC288-P0007-S0-E553-F288-007"
+              ],
+              "review_input_sha256": "463e5d028ea2e614a6162e5b51033127a1db69b4587aa2b67292283db972b4e0"
+            },
+            {
+              "test_design_item_index": 6,
+              "fact_ids": [
+                "DOC288-P0007-S0-E553-F288-008"
+              ],
+              "review_input_sha256": "38c13d496b342850ea459ba3edb5e0a74331371eb1274ba116515cfb1c21db4e"
+            },
+            {
+              "test_design_item_index": 7,
+              "fact_ids": [
+                "DOC288-P0001-f1",
+                "DOC288-P0007-S0-E553-F288-009"
+              ],
+              "review_input_sha256": "c83691b67842ade0b3446daea32433de989cd3fe9488717dfdab10f194b18400"
+            },
+            {
+              "test_design_item_index": 8,
+              "fact_ids": [
+                "DOC288-P0007-S0-E553-F288-009"
+              ],
+              "review_input_sha256": "626b6bc56ca91a3b8cc83fc30101c6eb9a2f285e357c4a1a2847987550896e12"
+            },
+            {
+              "test_design_item_index": 9,
+              "fact_ids": [
+                "DOC288-P0005-f5"
+              ],
+              "review_input_sha256": "042e4df028bb86035cdaa7afef2dcb3522d30ccb5afff5a73d6d02321033f683"
+            },
+            {
+              "test_design_item_index": 10,
+              "fact_ids": [
+                "DOC288-P0006-F001"
+              ],
+              "review_input_sha256": "2a68334fb2dff81c14508d41c35e62c1bafc8b31914937e0aab67c01ae6a8806"
+            },
+            {
+              "test_design_item_index": 11,
+              "fact_ids": [
+                "DOC288-P0006-F003"
+              ],
+              "review_input_sha256": "9f8f9ea316ecf5061e6bde1313ed0188b99434c92b00c360c1bb9dbab5782671"
+            },
+            {
+              "test_design_item_index": 12,
+              "fact_ids": [
+                "DOC288-P0006-F004"
+              ],
+              "review_input_sha256": "f800ce4619c114268e0a48d969114f788788a371ee4ee7c5988561b3bf136b34"
+            },
+            {
+              "test_design_item_index": 13,
+              "fact_ids": [
+                "DOC288-P0006-F005",
+                "DOC288-P0006-F006"
+              ],
+              "review_input_sha256": "ec347cfd597fac86124b39139ff73975161affec7429fb05683649b745e8a5a4"
+            }
+          ]
+        },
+        {
+          "actors": [],
+          "lifecycle": "提交后进入未处理，审批通过或拒绝后进入已处理",
+          "name": "机构开通审批",
+          "objective": "验证一级分销机构开通审批的处理状态、检索导出、记录操作和分页展示。",
+          "test_points": [
+            {
+              "name": "开通审批确认与处理列表",
+              "objective": "验证二次确认、未处理及已处理标签、列表字段分页、搜索导出和审批中及通过拒绝记录的可用操作，不推断确认触发点。",
+              "test_designs": [
+                {
+                  "rationale": "按审批中、已通过、已拒绝核对列表与可用操作，并检查二次确认。",
+                  "technique": "状态迁移",
+                  "coverage_items": [
+                    "验证审批需要二次确认。",
+                    "验证审批页面设有未处理和已处理标签，列表展示申请ID、机构、关联线索、关联普通机构、联系人、电话、提交人、提交时间、状态及操作列和分页控件。",
+                    "验证页面提供机构名称／提交人搜索框、搜索按钮和导出按钮；审批中记录展示详情、通过和拒绝操作。",
+                    "验证列表展示已通过和已拒绝记录，每条展示记录均有详情操作；页面提供机构名称／提交人搜索框、搜索按钮和导出按钮。"
+                  ]
+                }
+              ]
+            }
+          ],
+          "evidence_ids": [
+            "EV-0007",
+            "EV-0008",
+            "EV-0009"
+          ],
+          "fact_ids": [
+            "DOC288-P0004-f5",
+            "DOC288-P0004-f13",
+            "DOC288-P0004-f14",
+            "DOC288-P0004-f15",
+            "DOC288-P0004-f16",
+            "DOC288-P0004-f17",
+            "DOC288-P0004-f20",
+            "DOC288-P0004-f18",
+            "DOC288-P0004-f19"
+          ],
+          "fact_design_routes": [
+            {
+              "fact_id": "DOC288-P0004-f5",
+              "test_design_item_indexes": [
+                0
+              ]
+            },
+            {
+              "fact_id": "DOC288-P0004-f13",
+              "test_design_item_indexes": [
+                1
+              ]
+            },
+            {
+              "fact_id": "DOC288-P0004-f14",
+              "test_design_item_indexes": [
+                2
+              ]
+            },
+            {
+              "fact_id": "DOC288-P0004-f15",
+              "test_design_item_indexes": [
+                2
+              ]
+            },
+            {
+              "fact_id": "DOC288-P0004-f16",
+              "test_design_item_indexes": [
+                2
+              ]
+            },
+            {
+              "fact_id": "DOC288-P0004-f17",
+              "test_design_item_indexes": [
+                1
+              ]
+            },
+            {
+              "fact_id": "DOC288-P0004-f20",
+              "test_design_item_indexes": [
+                1
+              ]
+            },
+            {
+              "fact_id": "DOC288-P0004-f18",
+              "test_design_item_indexes": [
+                3
+              ]
+            },
+            {
+              "fact_id": "DOC288-P0004-f19",
+              "test_design_item_indexes": [
+                3
+              ]
+            }
+          ],
+          "design_supports": [
+            {
+              "test_design_item_index": 0,
+              "fact_ids": [
+                "DOC288-P0004-f5"
+              ],
+              "review_input_sha256": "a571dc44fc7d077913aed5bd325ed8c5ba82f024e022925743c11b5508c9c90f"
+            },
+            {
+              "test_design_item_index": 1,
+              "fact_ids": [
+                "DOC288-P0004-f13",
+                "DOC288-P0004-f17",
+                "DOC288-P0004-f20"
+              ],
+              "review_input_sha256": "23b55c2fcca17de1fa87687253fa228c0b2d02ad3f232340e977b306722644b9"
+            },
+            {
+              "test_design_item_index": 2,
+              "fact_ids": [
+                "DOC288-P0004-f14",
+                "DOC288-P0004-f15",
+                "DOC288-P0004-f16"
+              ],
+              "review_input_sha256": "4af3d6323fb7f6ca8a25ae6dfaeb161967a91a044c704f7149889341ac98e770"
+            },
+            {
+              "test_design_item_index": 3,
+              "fact_ids": [
+                "DOC288-P0004-f18",
+                "DOC288-P0004-f19"
+              ],
+              "review_input_sha256": "14c0c8c3c3001a4861351dcb1e551e99c0167682c21ae3ac7c0c3fae4b4ca1b2"
+            }
+          ]
+        },
+        {
+          "actors": [
+            "一级分销机构"
+          ],
+          "lifecycle": null,
+          "name": "机构详情、列表与统计展示",
+          "objective": "验证机构和门店详情、关联关系、余额、列表筛选及统计数据展示规则。",
+          "test_points": [
+            {
+              "name": "机构详情与账户余额",
+              "objective": "核对合同期限、销售、机构ID和类型、合伙人信息及预充值账户与代金券余额。",
+              "test_designs": [
+                {
+                  "rationale": "按基本信息、合伙人及余额类别核对展示内容。",
+                  "technique": "等价类",
+                  "coverage_items": [
+                    "验证展示合同期限、销售、机构ID、机构类型及包括星级合伙人在内的合伙人信息。",
+                    "验证账户余额区域展示预充值账户余额和代金券余额。"
+                  ]
+                }
+              ]
+            },
+            {
+              "name": "分类型机构及门店信息",
+              "objective": "核对各类机构信息、二级所属一级名称ID、一级名下机构字段与数量详情、普通及二级门店信息和单门店限制。",
+              "test_designs": [
+                {
+                  "rationale": "按机构类型核对差异化信息和关联对象展示。",
+                  "technique": "判定表",
+                  "coverage_items": [
+                    "核对机构信息字段，以及仅二级分销机构展示所属一级机构名称和ID。",
+                    "核对一级机构不展示门店数量，名下机构列表字段、机构数汇总及二级机构详情查看。",
+                    "核对普通机构和二级分销机构的门店名称、地址，以及二级机构固定一个门店。"
+                  ]
+                }
+              ]
+            },
+            {
+              "name": "门店消耗与机构设备统计",
+              "objective": "核对门店消耗总计及购买卡设备、年月选择和每日24点更新，以及各机构类型设备统计维度与总计。",
+              "test_designs": [
+                {
+                  "rationale": "按机构和门店维度结合时间切换及更新场景核对统计。",
+                  "technique": "场景法",
+                  "coverage_items": [
+                    "核对按门店展示总计、购买卡和购买设备，按年月查看及每天24点更新。",
+                    "核对普通和二级机构的门店名称、设备数及总计，一级机构的机构名称、设备数及总计。"
+                  ]
+                }
+              ]
+            },
+            {
+              "name": "机构列表筛选与关联标签",
+              "objective": "核对机构范围类型缴费状态枚举、全部互斥、筛选弹层控件、列表字段及二级专属紫色关联一级展示。",
+              "test_designs": [
+                {
+                  "rationale": "按筛选选项组合与机构类型判定互斥和关联行展示。",
+                  "technique": "判定表",
+                  "coverage_items": [
+                    "验证缴费状态可选未缴费和已缴费，机构范围可选我的机构和全部，机构类型可选普通、一级分销和二级分销机构。",
+                    "验证同一筛选维度内全部与具体选项互斥。",
+                    "验证弹层标题为查看筛选，展示关闭控件和确定按钮，缴费状态区域展示未缴费、已缴费和全部复选项。",
+                    "验证列表展示机构名称、机构类型、销售或联系人、已缴金额与合同金额。",
+                    "验证二级分销机构在联系人或销售下方以紫色关联一级标签及一级机构名展示关联机构；一级分销机构和普通机构不展示该行。"
+                  ]
+                }
+              ]
+            }
+          ],
+          "evidence_ids": [
+            "EV-0003",
+            "EV-0001",
+            "EV-0012",
+            "EV-0019",
+            "EV-0020",
+            "EV-0021",
+            "EV-0022"
+          ],
+          "fact_ids": [
+            "DOC288-P0002-f16",
+            "DOC288-P0001-f6",
+            "DOC288-P0001-f8",
+            "DOC288-P0005-f10",
+            "DOC288-P0005-f11",
+            "DOC288-P0005-f12",
+            "DOC288-P0009-f2",
+            "DOC288-P0009-f3",
+            "DOC288-P0009-f4",
+            "DOC288-P0009-f5",
+            "DOC288-P0009-f6",
+            "DOC288-P0009-f7",
+            "DOC288-P0009-f8",
+            "DOC288-P0009-f9",
+            "DOC288-P0009-f10",
+            "DOC288-P0009-f11",
+            "DOC288-P0009-f12",
+            "DOC288-P0009-f13",
+            "DOC288-P0009-f14",
+            "DOC288-P0010-f1",
+            "DOC288-P0010-f2",
+            "DOC288-P0010-f3",
+            "DOC288-P0010-f4",
+            "DOC288-P0010-f5",
+            "DOC288-P0010-f6",
+            "DOC288-P0010-f7",
+            "DOC288-P0010-f8",
+            "DOC288-P0010-f9",
+            "DOC288-P0009-f1"
+          ],
+          "fact_design_routes": [
+            {
+              "fact_id": "DOC288-P0002-f16",
+              "test_design_item_indexes": []
+            },
+            {
+              "fact_id": "DOC288-P0001-f6",
+              "test_design_item_indexes": []
+            },
+            {
+              "fact_id": "DOC288-P0001-f8",
+              "test_design_item_indexes": []
+            },
+            {
+              "fact_id": "DOC288-P0005-f10",
+              "test_design_item_indexes": [
+                0
+              ]
+            },
+            {
+              "fact_id": "DOC288-P0005-f11",
+              "test_design_item_indexes": [
+                0
+              ]
+            },
+            {
+              "fact_id": "DOC288-P0005-f12",
+              "test_design_item_indexes": [
+                1
+              ]
+            },
+            {
+              "fact_id": "DOC288-P0009-f2",
+              "test_design_item_indexes": [
+                3
+              ]
+            },
+            {
+              "fact_id": "DOC288-P0009-f3",
+              "test_design_item_indexes": [
+                3
+              ]
+            },
+            {
+              "fact_id": "DOC288-P0009-f4",
+              "test_design_item_indexes": [
+                3
+              ]
+            },
+            {
+              "fact_id": "DOC288-P0009-f5",
+              "test_design_item_indexes": [
+                3
+              ]
+            },
+            {
+              "fact_id": "DOC288-P0009-f6",
+              "test_design_item_indexes": [
+                2
+              ]
+            },
+            {
+              "fact_id": "DOC288-P0009-f7",
+              "test_design_item_indexes": [
+                2
+              ]
+            },
+            {
+              "fact_id": "DOC288-P0009-f8",
+              "test_design_item_indexes": [
+                5
+              ]
+            },
+            {
+              "fact_id": "DOC288-P0009-f9",
+              "test_design_item_indexes": [
+                5
+              ]
+            },
+            {
+              "fact_id": "DOC288-P0009-f10",
+              "test_design_item_indexes": [
+                5
+              ]
+            },
+            {
+              "fact_id": "DOC288-P0009-f11",
+              "test_design_item_indexes": [
+                4
+              ]
+            },
+            {
+              "fact_id": "DOC288-P0009-f12",
+              "test_design_item_indexes": [
+                6
+              ]
+            },
+            {
+              "fact_id": "DOC288-P0009-f13",
+              "test_design_item_indexes": []
+            },
+            {
+              "fact_id": "DOC288-P0009-f14",
+              "test_design_item_indexes": [
+                6
+              ]
+            },
+            {
+              "fact_id": "DOC288-P0010-f1",
+              "test_design_item_indexes": [
+                7
+              ]
+            },
+            {
+              "fact_id": "DOC288-P0010-f2",
+              "test_design_item_indexes": [
+                7
+              ]
+            },
+            {
+              "fact_id": "DOC288-P0010-f3",
+              "test_design_item_indexes": [
+                7
+              ]
+            },
+            {
+              "fact_id": "DOC288-P0010-f4",
+              "test_design_item_indexes": [
+                8
+              ]
+            },
+            {
+              "fact_id": "DOC288-P0010-f5",
+              "test_design_item_indexes": [
+                10
+              ]
+            },
+            {
+              "fact_id": "DOC288-P0010-f6",
+              "test_design_item_indexes": [
+                11
+              ]
+            },
+            {
+              "fact_id": "DOC288-P0010-f7",
+              "test_design_item_indexes": [
+                11
+              ]
+            },
+            {
+              "fact_id": "DOC288-P0010-f8",
+              "test_design_item_indexes": [
+                9
+              ]
+            },
+            {
+              "fact_id": "DOC288-P0010-f9",
+              "test_design_item_indexes": [
+                9
+              ]
+            },
+            {
+              "fact_id": "DOC288-P0009-f1",
+              "test_design_item_indexes": [
+                4
+              ]
+            }
+          ],
+          "design_supports": [
+            {
+              "test_design_item_index": 0,
+              "fact_ids": [
+                "DOC288-P0005-f10",
+                "DOC288-P0005-f11"
+              ],
+              "review_input_sha256": "0709bfdbace30cb0c4353d0cd16279a18d9fb1fc16e81ccdb84205863f8245b5"
+            },
+            {
+              "test_design_item_index": 1,
+              "fact_ids": [
+                "DOC288-P0005-f12"
+              ],
+              "review_input_sha256": "a03a42980aad62e45d7d5c5f0d1880b70e1b4abf9ea2b4ae22a661e1f89828db"
+            },
+            {
+              "test_design_item_index": 2,
+              "fact_ids": [
+                "DOC288-P0009-f6",
+                "DOC288-P0009-f7"
+              ],
+              "review_input_sha256": "c878ef1e1e0cb8d4c0432cfff8b2f86fb19cb9663a0cea98590cb85247062e32"
+            },
+            {
+              "test_design_item_index": 3,
+              "fact_ids": [
+                "DOC288-P0009-f2",
+                "DOC288-P0009-f3",
+                "DOC288-P0009-f4",
+                "DOC288-P0009-f5"
+              ],
+              "review_input_sha256": "2dabddf83e6419d7d7c771c9fc959cf51525e81e07a589a29d680e8d8266fd67"
+            },
+            {
+              "test_design_item_index": 4,
+              "fact_ids": [
+                "DOC288-P0009-f11",
+                "DOC288-P0009-f1"
+              ],
+              "review_input_sha256": "9cc0ec5668a71da45f5e9d57bd10fe987aa7777dc8c6bdd3c2092db12d029ae3"
+            },
+            {
+              "test_design_item_index": 5,
+              "fact_ids": [
+                "DOC288-P0009-f8",
+                "DOC288-P0009-f9",
+                "DOC288-P0009-f10"
+              ],
+              "review_input_sha256": "424849f0036e70a1545c15a41b330494f0d98f981f4a1b283269e9e1860cf6bf"
+            },
+            {
+              "test_design_item_index": 6,
+              "fact_ids": [
+                "DOC288-P0009-f12",
+                "DOC288-P0009-f14"
+              ],
+              "review_input_sha256": "75ca91052ffe009e8b58ee99c3e847175d386a47488454a3bd229715c7e568ac"
+            },
+            {
+              "test_design_item_index": 7,
+              "fact_ids": [
+                "DOC288-P0010-f1",
+                "DOC288-P0010-f2",
+                "DOC288-P0010-f3"
+              ],
+              "review_input_sha256": "3b43fdc53d79cb0b641afdecb9d8f99a63cbed20b63c9e6ee7f24f3b25d55792"
+            },
+            {
+              "test_design_item_index": 8,
+              "fact_ids": [
+                "DOC288-P0010-f4"
+              ],
+              "review_input_sha256": "da403c209c1efb7a140c4047222eeaa61b0642f7bec8c771f2587f2b4bfe3651"
+            },
+            {
+              "test_design_item_index": 9,
+              "fact_ids": [
+                "DOC288-P0010-f8",
+                "DOC288-P0010-f9"
+              ],
+              "review_input_sha256": "5fe48a203f612692b67f7c2189eebfdd1ab4136d00ff107f03b765e720778313"
+            },
+            {
+              "test_design_item_index": 10,
+              "fact_ids": [
+                "DOC288-P0010-f5"
+              ],
+              "review_input_sha256": "9b7ba7f767d183de9f3c031bf36369de159848fd5dc132dda54e356f81c7fca9"
+            },
+            {
+              "test_design_item_index": 11,
+              "fact_ids": [
+                "DOC288-P0010-f6",
+                "DOC288-P0010-f7"
+              ],
+              "review_input_sha256": "94c6c173df727f7dcacfc3ee882dffa41c81a296a518cdfed725889b18923246"
+            }
+          ]
+        },
+        {
+          "actors": [
+            "一级分销机构",
+            "销售"
+          ],
+          "lifecycle": "填写完成后提交平台审核，进入审核中，审核通过后生效",
+          "name": "门店学习卡价格审核",
+          "objective": "验证一级分销机构为名下门店设置学习卡价格、成本计算及审核生效。",
+          "test_points": [
+            {
+              "name": "门店价格范围、卡种矩阵与审核生效",
+              "objective": "验证名下权限、机构门店联动重置、门店价格刷新、9个卡种价格与只读成本计算、未填成本占位及提交审核通过生效。",
+              "test_designs": [
+                {
+                  "rationale": "贯穿机构门店选择、卡种填写与审核生效，兼顾非名下拒绝及未填写场景。",
+                  "technique": "场景法",
+                  "coverage_items": [
+                    "允许为名下二级分销机构的门店设置学习卡价格，并禁止设置非名下机构及其门店的价格。",
+                    "设置价格时先选择二级分销机构再选择其门店；切换机构时门店自动重置为该机构的第一个门店。",
+                    "按门店记录价格，切换门店时刷新该门店已填写的价格。",
+                    "展示每个卡种的关联机构价格和成本价；关联机构价格由销售填写，成本价根据关联机构价格自动计算且不可修改。",
+                    "覆盖月卡、引流卡、学期卡、计时卡和全科单月卡共9个卡种；未填写卡种的成本价显示为「―」。",
+                    "填写完成后提交平台审核，提交后显示审核中，审核通过后价格生效。"
+                  ]
+                }
+              ]
+            }
+          ],
+          "evidence_ids": [
+            "EV-0016"
+          ],
+          "fact_ids": [
+            "DOC288-P0008-f1",
+            "DOC288-P0008-f2",
+            "DOC288-P0008-f3",
+            "DOC288-P0008-f4",
+            "DOC288-P0008-f5",
+            "DOC288-P0008-f6",
+            "DOC288-P0008-f7",
+            "DOC288-P0008-f8",
+            "DOC288-P0008-f9",
+            "DOC288-P0008-f10",
+            "DOC288-P0008-f11",
+            "DOC288-P0008-f12"
+          ],
+          "fact_design_routes": [
+            {
+              "fact_id": "DOC288-P0008-f1",
+              "test_design_item_indexes": [
+                0
+              ]
+            },
+            {
+              "fact_id": "DOC288-P0008-f2",
+              "test_design_item_indexes": [
+                0
+              ]
+            },
+            {
+              "fact_id": "DOC288-P0008-f3",
+              "test_design_item_indexes": [
+                1
+              ]
+            },
+            {
+              "fact_id": "DOC288-P0008-f4",
+              "test_design_item_indexes": [
+                2
+              ]
+            },
+            {
+              "fact_id": "DOC288-P0008-f5",
+              "test_design_item_indexes": [
+                1
+              ]
+            },
+            {
+              "fact_id": "DOC288-P0008-f6",
+              "test_design_item_indexes": [
+                2
+              ]
+            },
+            {
+              "fact_id": "DOC288-P0008-f7",
+              "test_design_item_indexes": [
+                3
+              ]
+            },
+            {
+              "fact_id": "DOC288-P0008-f8",
+              "test_design_item_indexes": [
+                3
+              ]
+            },
+            {
+              "fact_id": "DOC288-P0008-f9",
+              "test_design_item_indexes": [
+                3
+              ]
+            },
+            {
+              "fact_id": "DOC288-P0008-f10",
+              "test_design_item_indexes": [
+                4
+              ]
+            },
+            {
+              "fact_id": "DOC288-P0008-f11",
+              "test_design_item_indexes": [
+                4
+              ]
+            },
+            {
+              "fact_id": "DOC288-P0008-f12",
+              "test_design_item_indexes": [
+                5
+              ]
+            }
+          ],
+          "design_supports": [
+            {
+              "test_design_item_index": 0,
+              "fact_ids": [
+                "DOC288-P0008-f1",
+                "DOC288-P0008-f2"
+              ],
+              "review_input_sha256": "34141d3b8a333826ce72f5442069817693c946c45c35dcf13f30b0851a3ed9cf"
+            },
+            {
+              "test_design_item_index": 1,
+              "fact_ids": [
+                "DOC288-P0008-f3",
+                "DOC288-P0008-f5"
+              ],
+              "review_input_sha256": "35d5049fb284b83087a97e5845d31312d59037003716df0d7d494e4d4d12da4b"
+            },
+            {
+              "test_design_item_index": 2,
+              "fact_ids": [
+                "DOC288-P0008-f4",
+                "DOC288-P0008-f6"
+              ],
+              "review_input_sha256": "b3bb14d4dba118da402d255cbe462a147f723edffe8ec95eda767ce37a32da89"
+            },
+            {
+              "test_design_item_index": 3,
+              "fact_ids": [
+                "DOC288-P0008-f7",
+                "DOC288-P0008-f8",
+                "DOC288-P0008-f9"
+              ],
+              "review_input_sha256": "0f48abbe52916909144f3ecb77e835c626f92d3aee99413525ba4e1ca1cae706"
+            },
+            {
+              "test_design_item_index": 4,
+              "fact_ids": [
+                "DOC288-P0008-f10",
+                "DOC288-P0008-f11"
+              ],
+              "review_input_sha256": "77a7dc1ad0b45a16a1452343a92a37d3b09930d3a513c1b288a66b8bc4f3a197"
+            },
+            {
+              "test_design_item_index": 5,
+              "fact_ids": [
+                "DOC288-P0008-f12"
+              ],
+              "review_input_sha256": "694583751e1c7fa158f169265f26441886a263be1cde8b29098ee873cfac6bb0"
+            }
+          ]
+        }
+      ],
+      "coverage_focus": [
+        "机构类型与新建时确定",
+        "普通机构、一级分销机构、二级分销机构的门店及层级规则",
+        "二级分销机构门店由销售代为操作且机构不自助新增",
+        "分销层级与机构/门店归属关系",
+        "二级分销机构门店新增方式及数量约束",
+        "新建一级分销机构页面的用途、入口与字段范围",
+        "机构与门店共同创建、预充值及既有审批流程",
+        "缴费类型入口调整和页面字段范围",
+        "优惠券申请入口、字段及页面操作",
+        "缴费入口数量及移除项",
+        "分销机构关联与门店数量展示",
+        "一级分销机构新建页面及关联字段",
+        "机构名称、简称和联系信息的字段含义",
+        "从已有线索或普通机构中选择关联，以及已有时直接读取",
+        "一级分销机构创建、门店归属及收费规则",
+        "缴费类型入口和明确用途",
+        "开通审批二次确认、列表展示与操作",
+        "已移除入口与不同机构类型的缴费权限",
+        "机构详情及账户余额展示",
+        "新增合作方案入口、字段及填写方式",
+        "机构与门店范围控制",
+        "门店维度价格填写与联动刷新",
+        "卡种价格与成本价计算展示",
+        "提交审核及生效状态",
+        "按机构类型核对信息、关联关系及列表展示",
+        "按门店和机构维度核对统计范围、时间及更新频率",
+        "机构范围、类型和缴费状态筛选及全部选项互斥",
+        "筛选弹层控件与缴费状态选项",
+        "机构列表字段和不同类型机构的关联一级展示"
+      ],
+      "requirement_summary": "覆盖机构类型与分销层级、一级机构创建与审批、二级机构门店创建缴费及优惠券申请、机构信息查询统计和学习卡价格审核；缴费入口用途仅承接明确的门店充值。",
+      "risks": [
+        "审批二次确认未明确触发位置及确认后的具体结果，设计测试时不宜补充未说明的交互。（关联事实：DOC288-P0004-f5）",
+        "缴费入口的一级机构合作方案开通用途存在来源分歧，本批仅覆盖入口可用及二级机构门店充值用途，不裁决该分歧。（关联事实：DOC288-P0004-f11）"
+      ]
+    },
+    "effective_facts": [
+      {
+        "status": "effective",
+        "fact_id": "DOC288-P0002-f1",
+        "scope_id": "EV-0003",
+        "assertion": "机构类型包括普通机构、一级分销机构和二级分销机构，在新建机构时确定。",
+        "governed_by": [],
+        "value_policy": "exact",
+        "source_anchor": {
+          "quote": "机构类型取三个值:普通机构、一级分销机构、二级分销机构,在新建机构时确定。",
+          "block_id": "P0002-T0002",
+          "document_id": 288,
+          "page_number": 2,
+          "source_kind": "document",
+          "source_span": {
+            "end": 45,
+            "start": 8
+          },
+          "page_image_sha256": "867fdc69bfd431d65181a00c03fbb38609112fee2115717171041d8de21e0c15",
+          "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+        },
+        "governed_values": []
+      },
+      {
+        "assertion": "普通机构持有门店。",
+        "fact_id": "DOC288-P0002-f2",
+        "governed_by": [],
+        "governed_values": [],
+        "scope_id": "EV-0003",
+        "source_anchor": {
+          "block_id": "P0002-T0004",
+          "table_cell": {
+            "table_id": "P0002-GRID0001",
+            "row_index": 1,
+            "column_index": 1
+          },
+          "document_id": 288,
+          "page_number": 2,
+          "source_kind": "document",
+          "source_segments": [
+            {
+              "text": "是",
+              "block_id": "P0002-T0004",
+              "source_span": {
+                "end": 76,
+                "start": 75
+              }
+            }
+          ],
+          "page_image_sha256": "867fdc69bfd431d65181a00c03fbb38609112fee2115717171041d8de21e0c15",
+          "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+        },
+        "source_context": {
+          "table_contexts": [
+            {
+              "rows": [
+                {
+                  "cells": [
+                    {
+                      "text": "机构类型",
+                      "column_index": 0
+                    },
+                    {
+                      "text": "是否持有⻔店",
+                      "column_index": 1
+                    },
+                    {
+                      "text": "层级位置",
+                      "column_index": 2
+                    },
+                    {
+                      "text": "⻔店新增方式",
+                      "column_index": 3
+                    }
+                  ],
+                  "row_index": 0
+                },
+                {
+                  "cells": [
+                    {
+                      "text": "普通机构",
+                      "column_index": 0
+                    },
+                    {
+                      "text": "是",
+                      "column_index": 1
+                    },
+                    {
+                      "text": "直接归属平台",
+                      "column_index": 2
+                    },
+                    {
+                      "text": "随机构开通产生",
+                      "column_index": 3
+                    }
+                  ],
+                  "row_index": 1
+                }
+              ],
+              "table_id": "P0002-GRID0001"
+            }
+          ]
+        },
+        "status": "effective",
+        "value_policy": "exact"
+      },
+      {
+        "assertion": "普通机构直接归属平台。",
+        "fact_id": "DOC288-P0002-f3",
+        "governed_by": [],
+        "governed_values": [],
+        "scope_id": "EV-0003",
+        "source_anchor": {
+          "block_id": "P0002-T0004",
+          "table_cell": {
+            "table_id": "P0002-GRID0001",
+            "row_index": 1,
+            "column_index": 2
+          },
+          "document_id": 288,
+          "page_number": 2,
+          "source_kind": "document",
+          "source_segments": [
+            {
+              "text": "直接归属平台",
+              "block_id": "P0002-T0004",
+              "source_span": {
+                "end": 83,
+                "start": 77
+              }
+            }
+          ],
+          "page_image_sha256": "867fdc69bfd431d65181a00c03fbb38609112fee2115717171041d8de21e0c15",
+          "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+        },
+        "source_context": {
+          "table_contexts": [
+            {
+              "rows": [
+                {
+                  "cells": [
+                    {
+                      "text": "机构类型",
+                      "column_index": 0
+                    },
+                    {
+                      "text": "是否持有⻔店",
+                      "column_index": 1
+                    },
+                    {
+                      "text": "层级位置",
+                      "column_index": 2
+                    },
+                    {
+                      "text": "⻔店新增方式",
+                      "column_index": 3
+                    }
+                  ],
+                  "row_index": 0
+                },
+                {
+                  "cells": [
+                    {
+                      "text": "普通机构",
+                      "column_index": 0
+                    },
+                    {
+                      "text": "是",
+                      "column_index": 1
+                    },
+                    {
+                      "text": "直接归属平台",
+                      "column_index": 2
+                    },
+                    {
+                      "text": "随机构开通产生",
+                      "column_index": 3
+                    }
+                  ],
+                  "row_index": 1
+                }
+              ],
+              "table_id": "P0002-GRID0001"
+            }
+          ]
+        },
+        "status": "effective",
+        "value_policy": "exact"
+      },
+      {
+        "assertion": "普通机构的门店随机构开通产生。",
+        "fact_id": "DOC288-P0002-f4",
+        "governed_by": [],
+        "governed_values": [],
+        "scope_id": "EV-0003",
+        "source_anchor": {
+          "block_id": "P0002-T0004",
+          "table_cell": {
+            "table_id": "P0002-GRID0001",
+            "row_index": 1,
+            "column_index": 3
+          },
+          "document_id": 288,
+          "page_number": 2,
+          "source_kind": "document",
+          "source_segments": [
+            {
+              "text": "随机构开通产生",
+              "block_id": "P0002-T0004",
+              "source_span": {
+                "end": 91,
+                "start": 84
+              }
+            }
+          ],
+          "page_image_sha256": "867fdc69bfd431d65181a00c03fbb38609112fee2115717171041d8de21e0c15",
+          "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+        },
+        "source_context": {
+          "table_contexts": [
+            {
+              "rows": [
+                {
+                  "cells": [
+                    {
+                      "text": "机构类型",
+                      "column_index": 0
+                    },
+                    {
+                      "text": "是否持有⻔店",
+                      "column_index": 1
+                    },
+                    {
+                      "text": "层级位置",
+                      "column_index": 2
+                    },
+                    {
+                      "text": "⻔店新增方式",
+                      "column_index": 3
+                    }
+                  ],
+                  "row_index": 0
+                },
+                {
+                  "cells": [
+                    {
+                      "text": "普通机构",
+                      "column_index": 0
+                    },
+                    {
+                      "text": "是",
+                      "column_index": 1
+                    },
+                    {
+                      "text": "直接归属平台",
+                      "column_index": 2
+                    },
+                    {
+                      "text": "随机构开通产生",
+                      "column_index": 3
+                    }
+                  ],
+                  "row_index": 1
+                }
+              ],
+              "table_id": "P0002-GRID0001"
+            }
+          ]
+        },
+        "status": "effective",
+        "value_policy": "exact"
+      },
+      {
+        "assertion": "一级分销机构不持有门店。",
+        "fact_id": "DOC288-P0002-f5",
+        "governed_by": [],
+        "governed_values": [],
+        "scope_id": "EV-0003",
+        "source_anchor": {
+          "block_id": "P0002-T0005",
+          "table_cell": {
+            "table_id": "P0002-GRID0001",
+            "row_index": 2,
+            "column_index": 1
+          },
+          "document_id": 288,
+          "page_number": 2,
+          "source_kind": "document",
+          "source_segments": [
+            {
+              "text": "否",
+              "block_id": "P0002-T0005",
+              "source_span": {
+                "end": 100,
+                "start": 99
+              }
+            }
+          ],
+          "page_image_sha256": "867fdc69bfd431d65181a00c03fbb38609112fee2115717171041d8de21e0c15",
+          "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+        },
+        "source_context": {
+          "table_contexts": [
+            {
+              "rows": [
+                {
+                  "cells": [
+                    {
+                      "text": "机构类型",
+                      "column_index": 0
+                    },
+                    {
+                      "text": "是否持有⻔店",
+                      "column_index": 1
+                    },
+                    {
+                      "text": "层级位置",
+                      "column_index": 2
+                    },
+                    {
+                      "text": "⻔店新增方式",
+                      "column_index": 3
+                    }
+                  ],
+                  "row_index": 0
+                },
+                {
+                  "cells": [
+                    {
+                      "text": "一级分销机构",
+                      "column_index": 0
+                    },
+                    {
+                      "text": "否",
+                      "column_index": 1
+                    },
+                    {
+                      "text": "二级分销机构的上级",
+                      "column_index": 2
+                    },
+                    {
+                      "text": "不适用,自身无⻔店",
+                      "column_index": 3
+                    }
+                  ],
+                  "row_index": 2
+                }
+              ],
+              "table_id": "P0002-GRID0001"
+            }
+          ]
+        },
+        "status": "effective",
+        "value_policy": "exact"
+      },
+      {
+        "assertion": "一级分销机构是二级分销机构的上级。",
+        "fact_id": "DOC288-P0002-f6",
+        "governed_by": [],
+        "governed_values": [],
+        "scope_id": "EV-0003",
+        "source_anchor": {
+          "block_id": "P0002-T0005",
+          "table_cell": {
+            "table_id": "P0002-GRID0001",
+            "row_index": 2,
+            "column_index": 2
+          },
+          "document_id": 288,
+          "page_number": 2,
+          "source_kind": "document",
+          "source_segments": [
+            {
+              "text": "二级分销机构的上级",
+              "block_id": "P0002-T0005",
+              "source_span": {
+                "end": 110,
+                "start": 101
+              }
+            }
+          ],
+          "page_image_sha256": "867fdc69bfd431d65181a00c03fbb38609112fee2115717171041d8de21e0c15",
+          "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+        },
+        "source_context": {
+          "table_contexts": [
+            {
+              "rows": [
+                {
+                  "cells": [
+                    {
+                      "text": "机构类型",
+                      "column_index": 0
+                    },
+                    {
+                      "text": "是否持有⻔店",
+                      "column_index": 1
+                    },
+                    {
+                      "text": "层级位置",
+                      "column_index": 2
+                    },
+                    {
+                      "text": "⻔店新增方式",
+                      "column_index": 3
+                    }
+                  ],
+                  "row_index": 0
+                },
+                {
+                  "cells": [
+                    {
+                      "text": "一级分销机构",
+                      "column_index": 0
+                    },
+                    {
+                      "text": "否",
+                      "column_index": 1
+                    },
+                    {
+                      "text": "二级分销机构的上级",
+                      "column_index": 2
+                    },
+                    {
+                      "text": "不适用,自身无⻔店",
+                      "column_index": 3
+                    }
+                  ],
+                  "row_index": 2
+                }
+              ],
+              "table_id": "P0002-GRID0001"
+            }
+          ]
+        },
+        "status": "effective",
+        "value_policy": "exact"
+      },
+      {
+        "assertion": "一级分销机构自身无门店，门店新增方式不适用。",
+        "fact_id": "DOC288-P0002-f7",
+        "governed_by": [],
+        "governed_values": [],
+        "scope_id": "EV-0003",
+        "source_anchor": {
+          "block_id": "P0002-T0005",
+          "table_cell": {
+            "table_id": "P0002-GRID0001",
+            "row_index": 2,
+            "column_index": 3
+          },
+          "document_id": 288,
+          "page_number": 2,
+          "source_kind": "document",
+          "source_segments": [
+            {
+              "text": "不适用,自身无⻔店",
+              "block_id": "P0002-T0005",
+              "source_span": {
+                "end": 120,
+                "start": 111
+              }
+            }
+          ],
+          "page_image_sha256": "867fdc69bfd431d65181a00c03fbb38609112fee2115717171041d8de21e0c15",
+          "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+        },
+        "source_context": {
+          "table_contexts": [
+            {
+              "rows": [
+                {
+                  "cells": [
+                    {
+                      "text": "机构类型",
+                      "column_index": 0
+                    },
+                    {
+                      "text": "是否持有⻔店",
+                      "column_index": 1
+                    },
+                    {
+                      "text": "层级位置",
+                      "column_index": 2
+                    },
+                    {
+                      "text": "⻔店新增方式",
+                      "column_index": 3
+                    }
+                  ],
+                  "row_index": 0
+                },
+                {
+                  "cells": [
+                    {
+                      "text": "一级分销机构",
+                      "column_index": 0
+                    },
+                    {
+                      "text": "否",
+                      "column_index": 1
+                    },
+                    {
+                      "text": "二级分销机构的上级",
+                      "column_index": 2
+                    },
+                    {
+                      "text": "不适用,自身无⻔店",
+                      "column_index": 3
+                    }
+                  ],
+                  "row_index": 2
+                }
+              ],
+              "table_id": "P0002-GRID0001"
+            }
+          ]
+        },
+        "status": "effective",
+        "value_policy": "exact"
+      },
+      {
+        "assertion": "二级分销机构持有门店。",
+        "fact_id": "DOC288-P0002-f8",
+        "governed_by": [],
+        "governed_values": [],
+        "scope_id": "EV-0003",
+        "source_anchor": {
+          "block_id": "P0002-T0006",
+          "table_cell": {
+            "table_id": "P0002-GRID0001",
+            "row_index": 3,
+            "column_index": 1
+          },
+          "document_id": 288,
+          "page_number": 2,
+          "source_kind": "document",
+          "source_segments": [
+            {
+              "text": "是",
+              "block_id": "P0002-T0006",
+              "source_span": {
+                "end": 129,
+                "start": 128
+              }
+            }
+          ],
+          "page_image_sha256": "867fdc69bfd431d65181a00c03fbb38609112fee2115717171041d8de21e0c15",
+          "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+        },
+        "source_context": {
+          "table_contexts": [
+            {
+              "rows": [
+                {
+                  "cells": [
+                    {
+                      "text": "机构类型",
+                      "column_index": 0
+                    },
+                    {
+                      "text": "是否持有⻔店",
+                      "column_index": 1
+                    },
+                    {
+                      "text": "层级位置",
+                      "column_index": 2
+                    },
+                    {
+                      "text": "⻔店新增方式",
+                      "column_index": 3
+                    }
+                  ],
+                  "row_index": 0
+                },
+                {
+                  "cells": [
+                    {
+                      "text": "二级分销机构",
+                      "column_index": 0
+                    },
+                    {
+                      "text": "是",
+                      "column_index": 1
+                    },
+                    {
+                      "text": "隶属一个一级分销机构",
+                      "column_index": 2
+                    },
+                    {
+                      "text": "由销售代为操作,机构不\n自助新增",
+                      "column_index": 3
+                    }
+                  ],
+                  "row_index": 3
+                }
+              ],
+              "table_id": "P0002-GRID0001"
+            }
+          ]
+        },
+        "status": "effective",
+        "value_policy": "exact"
+      },
+      {
+        "assertion": "二级分销机构隶属一个一级分销机构。",
+        "fact_id": "DOC288-P0002-f9",
+        "governed_by": [],
+        "governed_values": [],
+        "scope_id": "EV-0003",
+        "source_anchor": {
+          "block_id": "P0002-T0006",
+          "table_cell": {
+            "table_id": "P0002-GRID0001",
+            "row_index": 3,
+            "column_index": 2
+          },
+          "document_id": 288,
+          "page_number": 2,
+          "source_kind": "document",
+          "source_segments": [
+            {
+              "text": "隶属一个一级分销机构",
+              "block_id": "P0002-T0006",
+              "source_span": {
+                "end": 140,
+                "start": 130
+              }
+            }
+          ],
+          "page_image_sha256": "867fdc69bfd431d65181a00c03fbb38609112fee2115717171041d8de21e0c15",
+          "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+        },
+        "source_context": {
+          "table_contexts": [
+            {
+              "rows": [
+                {
+                  "cells": [
+                    {
+                      "text": "机构类型",
+                      "column_index": 0
+                    },
+                    {
+                      "text": "是否持有⻔店",
+                      "column_index": 1
+                    },
+                    {
+                      "text": "层级位置",
+                      "column_index": 2
+                    },
+                    {
+                      "text": "⻔店新增方式",
+                      "column_index": 3
+                    }
+                  ],
+                  "row_index": 0
+                },
+                {
+                  "cells": [
+                    {
+                      "text": "二级分销机构",
+                      "column_index": 0
+                    },
+                    {
+                      "text": "是",
+                      "column_index": 1
+                    },
+                    {
+                      "text": "隶属一个一级分销机构",
+                      "column_index": 2
+                    },
+                    {
+                      "text": "由销售代为操作,机构不\n自助新增",
+                      "column_index": 3
+                    }
+                  ],
+                  "row_index": 3
+                }
+              ],
+              "table_id": "P0002-GRID0001"
+            }
+          ]
+        },
+        "status": "effective",
+        "value_policy": "exact"
+      },
+      {
+        "assertion": "二级分销机构的门店由销售代为新增，机构不自助新增。",
+        "fact_id": "DOC288-P0002-f10",
+        "governed_by": [],
+        "governed_values": [],
+        "scope_id": "EV-0003",
+        "source_anchor": {
+          "block_id": "P0002-T0006",
+          "table_cell": {
+            "table_id": "P0002-GRID0001",
+            "row_index": 3,
+            "column_index": 3
+          },
+          "document_id": 288,
+          "page_number": 2,
+          "source_kind": "document",
+          "source_segments": [
+            {
+              "text": "由销售代为操作,机构不",
+              "block_id": "P0002-T0006",
+              "source_span": {
+                "end": 152,
+                "start": 141
+              }
+            },
+            {
+              "text": "自助新增",
+              "block_id": "P0002-T0007",
+              "source_span": {
+                "end": 157,
+                "start": 153
+              }
+            }
+          ],
+          "page_image_sha256": "867fdc69bfd431d65181a00c03fbb38609112fee2115717171041d8de21e0c15",
+          "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+        },
+        "source_context": {
+          "table_contexts": [
+            {
+              "rows": [
+                {
+                  "cells": [
+                    {
+                      "text": "机构类型",
+                      "column_index": 0
+                    },
+                    {
+                      "text": "是否持有⻔店",
+                      "column_index": 1
+                    },
+                    {
+                      "text": "层级位置",
+                      "column_index": 2
+                    },
+                    {
+                      "text": "⻔店新增方式",
+                      "column_index": 3
+                    }
+                  ],
+                  "row_index": 0
+                },
+                {
+                  "cells": [
+                    {
+                      "text": "二级分销机构",
+                      "column_index": 0
+                    },
+                    {
+                      "text": "是",
+                      "column_index": 1
+                    },
+                    {
+                      "text": "隶属一个一级分销机构",
+                      "column_index": 2
+                    },
+                    {
+                      "text": "由销售代为操作,机构不\n自助新增",
+                      "column_index": 3
+                    }
+                  ],
+                  "row_index": 3
+                }
+              ],
+              "table_id": "P0002-GRID0001"
+            }
+          ]
+        },
+        "status": "effective",
+        "value_policy": "exact"
+      },
+      {
+        "status": "effective",
+        "fact_id": "DOC288-P0002-f11",
+        "scope_id": "EV-0003",
+        "assertion": "分销层级依次为平台、一级分销机构、二级分销机构和门店。",
+        "governed_by": [],
+        "value_policy": "exact",
+        "source_anchor": {
+          "quote": "• 层级为:平台→一级分销机构→二级分销机构→⻔店。",
+          "block_id": "P0002-T0009",
+          "document_id": 288,
+          "page_number": 2,
+          "source_kind": "document",
+          "source_span": {
+            "end": 192,
+            "start": 166
+          },
+          "page_image_sha256": "867fdc69bfd431d65181a00c03fbb38609112fee2115717171041d8de21e0c15",
+          "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+        },
+        "governed_values": []
+      },
+      {
+        "status": "effective",
+        "fact_id": "DOC288-P0002-f12",
+        "scope_id": "EV-0003",
+        "assertion": "一个二级分销机构只能隶属一个一级分销机构。",
+        "governed_by": [],
+        "value_policy": "exact",
+        "source_anchor": {
+          "quote": "• 一个二级分销机构只能隶属一个一级分销机构;一个一级分销机构可以拥有多个二级分销机构。",
+          "block_id": "P0002-T0010",
+          "document_id": 288,
+          "page_number": 2,
+          "source_kind": "document",
+          "source_span": {
+            "end": 237,
+            "start": 193
+          },
+          "page_image_sha256": "867fdc69bfd431d65181a00c03fbb38609112fee2115717171041d8de21e0c15",
+          "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+        },
+        "governed_values": []
+      },
+      {
+        "status": "effective",
+        "fact_id": "DOC288-P0002-f13",
+        "scope_id": "EV-0003",
+        "assertion": "一个一级分销机构可以拥有多个二级分销机构。",
+        "governed_by": [],
+        "value_policy": "exact",
+        "source_anchor": {
+          "quote": "• 一个二级分销机构只能隶属一个一级分销机构;一个一级分销机构可以拥有多个二级分销机构。",
+          "block_id": "P0002-T0010",
+          "document_id": 288,
+          "page_number": 2,
+          "source_kind": "document",
+          "source_span": {
+            "end": 237,
+            "start": 193
+          },
+          "page_image_sha256": "867fdc69bfd431d65181a00c03fbb38609112fee2115717171041d8de21e0c15",
+          "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+        },
+        "governed_values": []
+      },
+      {
+        "status": "effective",
+        "fact_id": "DOC288-P0002-f14",
+        "scope_id": "EV-0003",
+        "assertion": "每个二级分销机构固定只有一个门店。",
+        "governed_by": [],
+        "value_policy": "exact",
+        "source_anchor": {
+          "quote": "• 每个二级分销机构固定只有1个⻔店;一级分销机构名下⻔店数等于其名下二级分销机构数量,界",
+          "block_id": "P0002-T0011",
+          "document_id": 288,
+          "page_number": 2,
+          "source_kind": "document",
+          "source_span": {
+            "end": 283,
+            "start": 238
+          },
+          "page_image_sha256": "867fdc69bfd431d65181a00c03fbb38609112fee2115717171041d8de21e0c15",
+          "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+        },
+        "governed_values": []
+      },
+      {
+        "status": "effective",
+        "fact_id": "DOC288-P0002-f15",
+        "scope_id": "EV-0003",
+        "assertion": "一级分销机构名下门店数等于其名下二级分销机构数量。",
+        "governed_by": [],
+        "value_policy": "exact",
+        "source_anchor": {
+          "quote": "• 每个二级分销机构固定只有1个⻔店;一级分销机构名下⻔店数等于其名下二级分销机构数量,界",
+          "block_id": "P0002-T0011",
+          "document_id": 288,
+          "page_number": 2,
+          "source_kind": "document",
+          "source_span": {
+            "end": 283,
+            "start": 238
+          },
+          "page_image_sha256": "867fdc69bfd431d65181a00c03fbb38609112fee2115717171041d8de21e0c15",
+          "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+        },
+        "governed_values": []
+      },
+      {
+        "status": "effective",
+        "fact_id": "DOC288-P0002-f16",
+        "scope_id": "EV-0003",
+        "assertion": "界面上不再单独展示一级分销机构名下门店数量。",
+        "governed_by": [],
+        "value_policy": "exact",
+        "source_anchor": {
+          "quote": "面上不再单独展示⻔店数量。",
+          "block_id": "P0002-T0012",
+          "document_id": 288,
+          "page_number": 2,
+          "source_kind": "document",
+          "source_span": {
+            "end": 297,
+            "start": 284
+          },
+          "page_image_sha256": "867fdc69bfd431d65181a00c03fbb38609112fee2115717171041d8de21e0c15",
+          "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+        },
+        "governed_values": []
+      },
+      {
+        "status": "effective",
+        "fact_id": "DOC288-P0002-f17",
+        "scope_id": "EV-0003",
+        "assertion": "普通机构不参与分销层级，其门店直接归属该机构。",
+        "governed_by": [],
+        "value_policy": "exact",
+        "source_anchor": {
+          "quote": "• 普通机构不参与分销层级,其⻔店直接归属该机构。",
+          "block_id": "P0002-T0013",
+          "document_id": 288,
+          "page_number": 2,
+          "source_kind": "document",
+          "source_span": {
+            "end": 323,
+            "start": 298
+          },
+          "page_image_sha256": "867fdc69bfd431d65181a00c03fbb38609112fee2115717171041d8de21e0c15",
+          "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+        },
+        "governed_values": []
+      },
+      {
+        "status": "effective",
+        "fact_id": "DOC288-P0002-f18",
+        "scope_id": "EV-0003",
+        "assertion": "原通用新建机构页面改为专属的新建一级分销机构页面，副标题为“关联线索与普通机构”，仅用于创建一级分销机构，H5也同步提供。",
+        "governed_by": [],
+        "value_policy": "exact",
+        "source_anchor": {
+          "quote": "【变更】原通用「新建机构」⻚面已改为专属的「新建一级分销机构」⻚面(副标题:关联线索与普",
+          "block_id": "P0002-T0016",
+          "document_id": 288,
+          "page_number": 2,
+          "source_kind": "document",
+          "source_span": {
+            "end": 395,
+            "start": 351
+          },
+          "page_image_sha256": "867fdc69bfd431d65181a00c03fbb38609112fee2115717171041d8de21e0c15",
+          "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+        },
+        "governed_values": []
+      },
+      {
+        "status": "effective",
+        "fact_id": "DOC288-P0002-f19",
+        "scope_id": "EV-0003",
+        "assertion": "新建一级分销机构页面不再提供类型选择、所属一级、地址、规模、学段和学科等字段。",
+        "governed_by": [],
+        "value_policy": "exact",
+        "source_anchor": {
+          "quote": "通机构),仅用于创建一级分销机构;⻚面不再提供类型选择、所属一级、地址、规模、学段、学科",
+          "block_id": "P0002-T0017",
+          "document_id": 288,
+          "page_number": 2,
+          "source_kind": "document",
+          "source_span": {
+            "end": 440,
+            "start": 396
+          },
+          "page_image_sha256": "867fdc69bfd431d65181a00c03fbb38609112fee2115717171041d8de21e0c15",
+          "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+        },
+        "governed_values": []
+      },
+      {
+        "status": "effective",
+        "fact_id": "DOC288-P0007-S0-E553-F288-001",
+        "scope_id": "EV-0015",
+        "assertion": "「新建二级分校机构」页面底部提供返回、提交，以及银行转账、扫码支付、分享支付三种支付入口。",
+        "governed_by": [],
+        "value_policy": "exact",
+        "source_anchor": {
+          "quote": "• 底部操作:返回(‹)、提交,以及银行转账、扫码支付、分享支付三种支付入口;⻚面从缴费类型",
+          "block_id": "P0007-T0001",
+          "document_id": 288,
+          "page_number": 7,
+          "source_kind": "document",
+          "source_span": {
+            "end": 46,
+            "start": 0
+          },
+          "page_image_sha256": "6bc5376113baa537184b5636430aba3193e809f8b7947057c85b43f2559265de",
+          "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+        },
+        "governed_values": []
+      },
+      {
+        "status": "effective",
+        "fact_id": "DOC288-P0007-S0-E553-F288-002",
+        "scope_id": "EV-0015",
+        "assertion": "门店新增及对应费用统一在「新建二级分校机构」页面通过「预充值二级分销机构门店」完成，不再单独使用「新增门店缴费」入口。",
+        "governed_by": [],
+        "value_policy": "exact",
+        "source_anchor": {
+          "quote": "• ⻔店新增与对应费用统一在本⻚通过「预充值二级分销机构⻔店」完成,不再单独走「新增⻔店缴",
+          "block_id": "P0007-T0003",
+          "document_id": 288,
+          "page_number": 7,
+          "source_kind": "document",
+          "source_span": {
+            "end": 106,
+            "start": 61
+          },
+          "page_image_sha256": "6bc5376113baa537184b5636430aba3193e809f8b7947057c85b43f2559265de",
+          "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+        },
+        "governed_values": []
+      },
+      {
+        "status": "effective",
+        "fact_id": "DOC288-P0007-S0-E553-F288-003",
+        "scope_id": "EV-0015",
+        "assertion": "「新建二级分校机构」页面不涉及合作方案类型、隶属/管辖地区、合伙人发展、合伙人、学习机、督学平板、开通金额、最低开通费用、实际合同金额、总金额、已缴金额、本次缴费、合同期限、收货地址和备注字段。",
+        "governed_by": [],
+        "value_policy": "exact",
+        "source_anchor": {
+          "quote": "• 该⻚面仅保留上述字段;合作方案类型、隶属/管辖地区、合伙人发展、合伙人、学习机、督学平",
+          "block_id": "P0007-T0005",
+          "document_id": 288,
+          "page_number": 7,
+          "source_kind": "document",
+          "source_span": {
+            "end": 158,
+            "start": 113
+          },
+          "page_image_sha256": "6bc5376113baa537184b5636430aba3193e809f8b7947057c85b43f2559265de",
+          "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+        },
+        "governed_values": []
+      },
+      {
+        "status": "effective",
+        "fact_id": "DOC288-P0007-S0-E553-F288-004",
+        "scope_id": "EV-0015",
+        "assertion": "可从缴费类型弹窗中的「申请优惠券」入口进入「申请优惠券」页面。",
+        "governed_by": [],
+        "value_policy": "exact",
+        "source_anchor": {
+          "quote": "• 入口:缴费类型弹窗中的「申请优惠券」,进入「申请优惠券」⻚面。",
+          "block_id": "P0007-T0009",
+          "document_id": 288,
+          "page_number": 7,
+          "source_kind": "document",
+          "source_span": {
+            "end": 270,
+            "start": 237
+          },
+          "page_image_sha256": "6bc5376113baa537184b5636430aba3193e809f8b7947057c85b43f2559265de",
+          "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+        },
+        "governed_values": []
+      },
+      {
+        "status": "effective",
+        "fact_id": "DOC288-P0007-S0-E553-F288-005",
+        "scope_id": "EV-0015",
+        "assertion": "「申请优惠券」页面涉及优惠券类型、优惠券面额、申请数量、使用门槛、有效期（起）、有效期（止）和申请理由字段。",
+        "governed_by": [],
+        "value_policy": "exact",
+        "source_anchor": {
+          "quote": "• 涉及字段:优惠券类型、优惠券面额、申请数量、使用⻔槛、有效期(起)、有效期(止)、申请理",
+          "block_id": "P0007-T0010",
+          "document_id": 288,
+          "page_number": 7,
+          "source_kind": "document",
+          "source_span": {
+            "end": 317,
+            "start": 271
+          },
+          "page_image_sha256": "6bc5376113baa537184b5636430aba3193e809f8b7947057c85b43f2559265de",
+          "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+        },
+        "governed_values": []
+      },
+      {
+        "status": "effective",
+        "fact_id": "DOC288-P0007-S0-E553-F288-006",
+        "scope_id": "EV-0015",
+        "assertion": "在「申请优惠券」页面，优惠券类型、有效期（起）和有效期（止）为选择项。",
+        "governed_by": [],
+        "value_policy": "exact",
+        "source_anchor": {
+          "quote": "◦ 优惠券类型、有效期(起)、有效期(止)为选择项。",
+          "block_id": "P0007-T0013",
+          "document_id": 288,
+          "page_number": 7,
+          "source_kind": "document",
+          "source_span": {
+            "end": 355,
+            "start": 329
+          },
+          "page_image_sha256": "6bc5376113baa537184b5636430aba3193e809f8b7947057c85b43f2559265de",
+          "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+        },
+        "governed_values": []
+      },
+      {
+        "status": "effective",
+        "fact_id": "DOC288-P0007-S0-E553-F288-007",
+        "scope_id": "EV-0015",
+        "assertion": "在「申请优惠券」页面，优惠券面额和使用门槛为以元计的数值填写项，申请数量为以张计的数量步进项，申请理由为多行文本填写项。",
+        "governed_by": [],
+        "value_policy": "exact",
+        "source_anchor": {
+          "quote": "◦ 优惠券面额、使用⻔槛为数值填写项(元);申请数量为数量步进项(张);申请理由为多行文",
+          "block_id": "P0007-T0014",
+          "document_id": 288,
+          "page_number": 7,
+          "source_kind": "document",
+          "source_span": {
+            "end": 400,
+            "start": 356
+          },
+          "page_image_sha256": "6bc5376113baa537184b5636430aba3193e809f8b7947057c85b43f2559265de",
+          "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+        },
+        "governed_values": []
+      },
+      {
+        "status": "effective",
+        "fact_id": "DOC288-P0007-S0-E553-F288-008",
+        "scope_id": "EV-0015",
+        "assertion": "「申请优惠券」页面底部提供返回，以及银行转账、扫码支付、分享支付三种支付入口。",
+        "governed_by": [],
+        "value_policy": "exact",
+        "source_anchor": {
+          "quote": "• 底部操作:返回(‹),以及银行转账、扫码支付、分享支付三种支付入口。",
+          "block_id": "P0007-T0016",
+          "document_id": 288,
+          "page_number": 7,
+          "source_kind": "document",
+          "source_span": {
+            "end": 443,
+            "start": 407
+          },
+          "page_image_sha256": "6bc5376113baa537184b5636430aba3193e809f8b7947057c85b43f2559265de",
+          "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+        },
+        "governed_values": []
+      },
+      {
+        "status": "effective",
+        "fact_id": "DOC288-P0007-S0-E553-F288-009",
+        "scope_id": "EV-0015",
+        "assertion": "「新增门店缴费」「城市/区域新增门店」「门店续费」「新版升级代理」入口及其表单已从缴费类型中移除。",
+        "governed_by": [],
+        "value_policy": "exact",
+        "source_anchor": {
+          "quote": "• 原「新增⻔店缴费」「城市/区域新增⻔店」「⻔店续费」「新版升级代理」入口及其表单已从缴费类",
+          "block_id": "P0007-T0018",
+          "document_id": 288,
+          "page_number": 7,
+          "source_kind": "document",
+          "source_span": {
+            "end": 503,
+            "start": 456
+          },
+          "page_image_sha256": "6bc5376113baa537184b5636430aba3193e809f8b7947057c85b43f2559265de",
+          "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+        },
+        "governed_values": []
+      },
+      {
+        "status": "effective",
+        "fact_id": "DOC288-P0007-S0-E553-F288-010",
+        "scope_id": "EV-0015",
+        "assertion": "门店新增及对应费用统一在「新建二级分校机构」中通过「预充值二级分销机构门店」完成。",
+        "governed_by": [],
+        "value_policy": "exact",
+        "source_anchor": {
+          "quote": "• ⻔店新增与对应费用统一在「新建二级分校机构」中通过「预充值二级分销机构⻔店」完成。",
+          "block_id": "P0007-T0020",
+          "document_id": 288,
+          "page_number": 7,
+          "source_kind": "document",
+          "source_span": {
+            "end": 553,
+            "start": 510
+          },
+          "page_image_sha256": "6bc5376113baa537184b5636430aba3193e809f8b7947057c85b43f2559265de",
+          "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+        },
+        "governed_values": []
+      },
+      {
+        "status": "effective",
+        "fact_id": "DOC288-P0007-S554-E589-F288-007-001",
+        "scope_id": "EV-0015",
+        "assertion": "门店新增跟着机构一起创建，并走现有的审批流程。",
+        "governed_by": [],
+        "value_policy": "exact",
+        "source_anchor": {
+          "quote": "4.⻔店新增(跟着机构一起创建,走现有的审批流程)",
+          "block_id": "P0007-T0021",
+          "document_id": 288,
+          "page_number": 7,
+          "source_kind": "document",
+          "source_span": {
+            "end": 579,
+            "start": 554
+          },
+          "page_image_sha256": "6bc5376113baa537184b5636430aba3193e809f8b7947057c85b43f2559265de",
+          "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+        },
+        "governed_values": []
+      },
+      {
+        "status": "effective",
+        "fact_id": "DOC288-P0001-f1",
+        "scope_id": "EV-0001",
+        "assertion": "缴费类型入口精简为两类。",
+        "governed_by": [],
+        "value_policy": "exact",
+        "source_anchor": {
+          "quote": "1. 缴费类型入口精简为两类,移除「新增⻔店缴费」「城市/区域新增⻔店」「⻔店续费」「新版升级",
+          "block_id": "P0001-T0004",
+          "document_id": 288,
+          "page_number": 1,
+          "source_kind": "document",
+          "source_span": {
+            "end": 83,
+            "start": 36
+          },
+          "page_image_sha256": "7cf74e727b9474ff7e82e385088af04034af605fa7b78f09b0efe8501490cc91",
+          "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+        },
+        "governed_values": []
+      },
+      {
+        "status": "effective",
+        "fact_id": "DOC288-P0001-f2",
+        "scope_id": "EV-0001",
+        "assertion": "移除「新增门店缴费」入口。",
+        "governed_by": [],
+        "value_policy": "exact",
+        "source_anchor": {
+          "quote": "1. 缴费类型入口精简为两类,移除「新增⻔店缴费」「城市/区域新增⻔店」「⻔店续费」「新版升级",
+          "block_id": "P0001-T0004",
+          "document_id": 288,
+          "page_number": 1,
+          "source_kind": "document",
+          "source_span": {
+            "end": 83,
+            "start": 36
+          },
+          "page_image_sha256": "7cf74e727b9474ff7e82e385088af04034af605fa7b78f09b0efe8501490cc91",
+          "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+        },
+        "governed_values": []
+      },
+      {
+        "status": "effective",
+        "fact_id": "DOC288-P0001-f3",
+        "scope_id": "EV-0001",
+        "assertion": "移除「城市/区域新增门店」入口。",
+        "governed_by": [],
+        "value_policy": "exact",
+        "source_anchor": {
+          "quote": "1. 缴费类型入口精简为两类,移除「新增⻔店缴费」「城市/区域新增⻔店」「⻔店续费」「新版升级",
+          "block_id": "P0001-T0004",
+          "document_id": 288,
+          "page_number": 1,
+          "source_kind": "document",
+          "source_span": {
+            "end": 83,
+            "start": 36
+          },
+          "page_image_sha256": "7cf74e727b9474ff7e82e385088af04034af605fa7b78f09b0efe8501490cc91",
+          "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+        },
+        "governed_values": []
+      },
+      {
+        "status": "effective",
+        "fact_id": "DOC288-P0001-f4",
+        "scope_id": "EV-0001",
+        "assertion": "移除「门店续费」入口。",
+        "governed_by": [],
+        "value_policy": "exact",
+        "source_anchor": {
+          "quote": "1. 缴费类型入口精简为两类,移除「新增⻔店缴费」「城市/区域新增⻔店」「⻔店续费」「新版升级",
+          "block_id": "P0001-T0004",
+          "document_id": 288,
+          "page_number": 1,
+          "source_kind": "document",
+          "source_span": {
+            "end": 83,
+            "start": 36
+          },
+          "page_image_sha256": "7cf74e727b9474ff7e82e385088af04034af605fa7b78f09b0efe8501490cc91",
+          "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+        },
+        "governed_values": []
+      },
+      {
+        "status": "effective",
+        "fact_id": "DOC288-P0001-f5",
+        "scope_id": "EV-0001",
+        "assertion": "移除「新版升级代理」入口。",
+        "governed_by": [],
+        "value_policy": "exact",
+        "source_anchor": {
+          "quote": "1. 缴费类型入口精简为两类,移除「新增⻔店缴费」「城市/区域新增⻔店」「⻔店续费」「新版升级",
+          "block_id": "P0001-T0004",
+          "document_id": 288,
+          "page_number": 1,
+          "source_kind": "document",
+          "source_span": {
+            "end": 83,
+            "start": 36
+          },
+          "page_image_sha256": "7cf74e727b9474ff7e82e385088af04034af605fa7b78f09b0efe8501490cc91",
+          "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+        },
+        "governed_values": []
+      },
+      {
+        "status": "effective",
+        "fact_id": "DOC288-P0001-f6",
+        "scope_id": "EV-0001",
+        "assertion": "机构列表中二级分销机构条目直接展示其关联的一级分销机构。",
+        "governed_by": [],
+        "value_policy": "exact",
+        "source_anchor": {
+          "quote": "2. 机构列表中二级分销机构条目直接展示其关联的一级分销机构;",
+          "block_id": "P0001-T0006",
+          "document_id": 288,
+          "page_number": 1,
+          "source_kind": "document",
+          "source_span": {
+            "end": 122,
+            "start": 91
+          },
+          "page_image_sha256": "7cf74e727b9474ff7e82e385088af04034af605fa7b78f09b0efe8501490cc91",
+          "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+        },
+        "governed_values": []
+      },
+      {
+        "status": "effective",
+        "fact_id": "DOC288-P0001-f7",
+        "scope_id": "EV-0001",
+        "assertion": "每个二级分销机构固定1个门店。",
+        "governed_by": [],
+        "value_policy": "exact",
+        "source_anchor": {
+          "quote": "3. 每个二级分销机构固定1个⻔店,一级分销机构详情不再展示⻔店数量;",
+          "block_id": "P0001-T0007",
+          "document_id": 288,
+          "page_number": 1,
+          "source_kind": "document",
+          "source_span": {
+            "end": 158,
+            "start": 123
+          },
+          "page_image_sha256": "7cf74e727b9474ff7e82e385088af04034af605fa7b78f09b0efe8501490cc91",
+          "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+        },
+        "governed_values": []
+      },
+      {
+        "status": "effective",
+        "fact_id": "DOC288-P0001-f8",
+        "scope_id": "EV-0001",
+        "assertion": "一级分销机构详情不再展示门店数量。",
+        "governed_by": [],
+        "value_policy": "exact",
+        "source_anchor": {
+          "quote": "3. 每个二级分销机构固定1个⻔店,一级分销机构详情不再展示⻔店数量;",
+          "block_id": "P0001-T0007",
+          "document_id": 288,
+          "page_number": 1,
+          "source_kind": "document",
+          "source_span": {
+            "end": 158,
+            "start": 123
+          },
+          "page_image_sha256": "7cf74e727b9474ff7e82e385088af04034af605fa7b78f09b0efe8501490cc91",
+          "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+        },
+        "governed_values": []
+      },
+      {
+        "status": "effective",
+        "fact_id": "DOC288-P0001-f9",
+        "scope_id": "EV-0001",
+        "assertion": "「新建机构」页面改为专属的「新建一级分销机构」页面。",
+        "governed_by": [],
+        "value_policy": "exact",
+        "source_anchor": {
+          "quote": "4. 「新建机构」⻚面改为专属的「新建一级分销机构」⻚面,新增「关联线索」「关联普通机构」字",
+          "block_id": "P0001-T0008",
+          "document_id": 288,
+          "page_number": 1,
+          "source_kind": "document",
+          "source_span": {
+            "end": 205,
+            "start": 159
+          },
+          "page_image_sha256": "7cf74e727b9474ff7e82e385088af04034af605fa7b78f09b0efe8501490cc91",
+          "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+        },
+        "governed_values": []
+      },
+      {
+        "status": "effective",
+        "fact_id": "DOC288-P0001-f10",
+        "scope_id": "EV-0001",
+        "assertion": "新建一级分销机构页面新增「关联线索」字段。",
+        "governed_by": [],
+        "value_policy": "exact",
+        "source_anchor": {
+          "quote": "4. 「新建机构」⻚面改为专属的「新建一级分销机构」⻚面,新增「关联线索」「关联普通机构」字",
+          "block_id": "P0001-T0008",
+          "document_id": 288,
+          "page_number": 1,
+          "source_kind": "document",
+          "source_span": {
+            "end": 205,
+            "start": 159
+          },
+          "page_image_sha256": "7cf74e727b9474ff7e82e385088af04034af605fa7b78f09b0efe8501490cc91",
+          "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+        },
+        "governed_values": []
+      },
+      {
+        "status": "effective",
+        "fact_id": "DOC288-P0001-f11",
+        "scope_id": "EV-0001",
+        "assertion": "新建一级分销机构页面新增「关联普通机构」字段。",
+        "governed_by": [],
+        "value_policy": "exact",
+        "source_anchor": {
+          "quote": "4. 「新建机构」⻚面改为专属的「新建一级分销机构」⻚面,新增「关联线索」「关联普通机构」字",
+          "block_id": "P0001-T0008",
+          "document_id": 288,
+          "page_number": 1,
+          "source_kind": "document",
+          "source_span": {
+            "end": 205,
+            "start": 159
+          },
+          "page_image_sha256": "7cf74e727b9474ff7e82e385088af04034af605fa7b78f09b0efe8501490cc91",
+          "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+        },
+        "governed_values": []
+      },
+      {
+        "status": "effective",
+        "fact_id": "DOC288-P0003-f1",
+        "scope_id": "EV-0004",
+        "assertion": "名称字段表示机构全称。",
+        "governed_by": [],
+        "value_policy": "exact",
+        "source_anchor": {
+          "block_id": "P0003-T0002",
+          "table_cell": {
+            "table_id": "P0003-GRID0001",
+            "row_index": 1,
+            "column_index": 1
+          },
+          "document_id": 288,
+          "page_number": 3,
+          "source_kind": "document",
+          "source_segments": [
+            {
+              "text": "机构全称。",
+              "block_id": "P0003-T0002",
+              "source_span": {
+                "end": 14,
+                "start": 9
+              }
+            }
+          ],
+          "page_image_sha256": "81f43f854b07bd4f513d9714e691146183813ab79cd5d198cbba10854838d190",
+          "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+        },
+        "source_context": {
+          "table_contexts": [
+            {
+              "rows": [
+                {
+                  "cells": [
+                    {
+                      "text": "字段",
+                      "column_index": 0
+                    },
+                    {
+                      "text": "说明",
+                      "column_index": 1
+                    }
+                  ],
+                  "row_index": 0
+                },
+                {
+                  "cells": [
+                    {
+                      "text": "名称",
+                      "column_index": 0
+                    },
+                    {
+                      "text": "机构全称。",
+                      "column_index": 1
+                    }
+                  ],
+                  "row_index": 1
+                }
+              ],
+              "table_id": "P0003-GRID0001"
+            }
+          ]
+        },
+        "governed_values": []
+      },
+      {
+        "status": "effective",
+        "fact_id": "DOC288-P0003-f2",
+        "scope_id": "EV-0004",
+        "assertion": "简称字段表示机构简称。",
+        "governed_by": [],
+        "value_policy": "exact",
+        "source_anchor": {
+          "block_id": "P0003-T0003",
+          "table_cell": {
+            "table_id": "P0003-GRID0001",
+            "row_index": 2,
+            "column_index": 1
+          },
+          "document_id": 288,
+          "page_number": 3,
+          "source_kind": "document",
+          "source_segments": [
+            {
+              "text": "机构简称。",
+              "block_id": "P0003-T0003",
+              "source_span": {
+                "end": 23,
+                "start": 18
+              }
+            }
+          ],
+          "page_image_sha256": "81f43f854b07bd4f513d9714e691146183813ab79cd5d198cbba10854838d190",
+          "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+        },
+        "source_context": {
+          "table_contexts": [
+            {
+              "rows": [
+                {
+                  "cells": [
+                    {
+                      "text": "字段",
+                      "column_index": 0
+                    },
+                    {
+                      "text": "说明",
+                      "column_index": 1
+                    }
+                  ],
+                  "row_index": 0
+                },
+                {
+                  "cells": [
+                    {
+                      "text": "简称",
+                      "column_index": 0
+                    },
+                    {
+                      "text": "机构简称。",
+                      "column_index": 1
+                    }
+                  ],
+                  "row_index": 2
+                }
+              ],
+              "table_id": "P0003-GRID0001"
+            }
+          ]
+        },
+        "governed_values": []
+      },
+      {
+        "assertion": "关联线索通过下拉框从已有线索中选择，以关联该机构的来源线索。",
+        "fact_id": "DOC288-P0003-f3",
+        "governed_by": [],
+        "governed_values": [],
+        "scope_id": "EV-0004",
+        "source_anchor": {
+          "block_id": "P0003-T0004",
+          "table_cell": {
+            "table_id": "P0003-GRID0001",
+            "row_index": 3,
+            "column_index": 1
+          },
+          "document_id": 288,
+          "page_number": 3,
+          "source_kind": "document",
+          "source_segments": [
+            {
+              "text": "下拉选择,从已有线索中选择,关联该机构的来源线索。有了就不用编辑了,",
+              "block_id": "P0003-T0004",
+              "source_span": {
+                "end": 63,
+                "start": 29
+              }
+            },
+            {
+              "text": "直接读取",
+              "block_id": "P0003-T0005",
+              "source_span": {
+                "end": 68,
+                "start": 64
+              }
+            }
+          ],
+          "page_image_sha256": "81f43f854b07bd4f513d9714e691146183813ab79cd5d198cbba10854838d190",
+          "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+        },
+        "source_context": {
+          "table_contexts": [
+            {
+              "rows": [
+                {
+                  "cells": [
+                    {
+                      "text": "字段",
+                      "column_index": 0
+                    },
+                    {
+                      "text": "说明",
+                      "column_index": 1
+                    }
+                  ],
+                  "row_index": 0
+                },
+                {
+                  "cells": [
+                    {
+                      "text": "关联线索",
+                      "column_index": 0
+                    },
+                    {
+                      "text": "下拉选择,从已有线索中选择,关联该机构的来源线索。有了就不用编辑了,\n直接读取",
+                      "column_index": 1
+                    }
+                  ],
+                  "row_index": 3
+                }
+              ],
+              "table_id": "P0003-GRID0001"
+            }
+          ]
+        },
+        "status": "effective",
+        "value_policy": "exact"
+      },
+      {
+        "assertion": "关联线索已有时无需编辑，直接读取。",
+        "fact_id": "DOC288-P0003-f4",
+        "governed_by": [],
+        "governed_values": [],
+        "scope_id": "EV-0004",
+        "source_anchor": {
+          "block_id": "P0003-T0005",
+          "table_cell": {
+            "table_id": "P0003-GRID0001",
+            "row_index": 3,
+            "column_index": 1
+          },
+          "document_id": 288,
+          "page_number": 3,
+          "source_kind": "document",
+          "source_segments": [
+            {
+              "text": "下拉选择,从已有线索中选择,关联该机构的来源线索。有了就不用编辑了,",
+              "block_id": "P0003-T0004",
+              "source_span": {
+                "end": 63,
+                "start": 29
+              }
+            },
+            {
+              "text": "直接读取",
+              "block_id": "P0003-T0005",
+              "source_span": {
+                "end": 68,
+                "start": 64
+              }
+            }
+          ],
+          "page_image_sha256": "81f43f854b07bd4f513d9714e691146183813ab79cd5d198cbba10854838d190",
+          "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+        },
+        "source_context": {
+          "table_contexts": [
+            {
+              "rows": [
+                {
+                  "cells": [
+                    {
+                      "text": "字段",
+                      "column_index": 0
+                    },
+                    {
+                      "text": "说明",
+                      "column_index": 1
+                    }
+                  ],
+                  "row_index": 0
+                },
+                {
+                  "cells": [
+                    {
+                      "text": "关联线索",
+                      "column_index": 0
+                    },
+                    {
+                      "text": "下拉选择,从已有线索中选择,关联该机构的来源线索。有了就不用编辑了,\n直接读取",
+                      "column_index": 1
+                    }
+                  ],
+                  "row_index": 3
+                }
+              ],
+              "table_id": "P0003-GRID0001"
+            }
+          ]
+        },
+        "status": "effective",
+        "value_policy": "exact"
+      },
+      {
+        "assertion": "关联普通机构通过下拉框从已存在的普通机构中选择，建立与普通机构的关联。",
+        "fact_id": "DOC288-P0003-f5",
+        "governed_by": [],
+        "governed_values": [],
+        "scope_id": "EV-0004",
+        "source_anchor": {
+          "block_id": "P0003-T0006",
+          "table_cell": {
+            "table_id": "P0003-GRID0001",
+            "row_index": 4,
+            "column_index": 1
+          },
+          "document_id": 288,
+          "page_number": 3,
+          "source_kind": "document",
+          "source_segments": [
+            {
+              "text": "下拉选择,从已存在的普通机构中选择,建立与普通机构的关联。有了就不用",
+              "block_id": "P0003-T0006",
+              "source_span": {
+                "end": 110,
+                "start": 76
+              }
+            },
+            {
+              "text": "编辑了,直接读取",
+              "block_id": "P0003-T0007",
+              "source_span": {
+                "end": 119,
+                "start": 111
+              }
+            }
+          ],
+          "page_image_sha256": "81f43f854b07bd4f513d9714e691146183813ab79cd5d198cbba10854838d190",
+          "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+        },
+        "source_context": {
+          "table_contexts": [
+            {
+              "rows": [
+                {
+                  "cells": [
+                    {
+                      "text": "字段",
+                      "column_index": 0
+                    },
+                    {
+                      "text": "说明",
+                      "column_index": 1
+                    }
+                  ],
+                  "row_index": 0
+                },
+                {
+                  "cells": [
+                    {
+                      "text": "关联普通机构",
+                      "column_index": 0
+                    },
+                    {
+                      "text": "下拉选择,从已存在的普通机构中选择,建立与普通机构的关联。有了就不用\n编辑了,直接读取",
+                      "column_index": 1
+                    }
+                  ],
+                  "row_index": 4
+                }
+              ],
+              "table_id": "P0003-GRID0001"
+            }
+          ]
+        },
+        "status": "effective",
+        "value_policy": "exact"
+      },
+      {
+        "assertion": "关联普通机构已有时无需编辑，直接读取。",
+        "fact_id": "DOC288-P0003-f6",
+        "governed_by": [],
+        "governed_values": [],
+        "scope_id": "EV-0004",
+        "source_anchor": {
+          "block_id": "P0003-T0007",
+          "table_cell": {
+            "table_id": "P0003-GRID0001",
+            "row_index": 4,
+            "column_index": 1
+          },
+          "document_id": 288,
+          "page_number": 3,
+          "source_kind": "document",
+          "source_segments": [
+            {
+              "text": "下拉选择,从已存在的普通机构中选择,建立与普通机构的关联。有了就不用",
+              "block_id": "P0003-T0006",
+              "source_span": {
+                "end": 110,
+                "start": 76
+              }
+            },
+            {
+              "text": "编辑了,直接读取",
+              "block_id": "P0003-T0007",
+              "source_span": {
+                "end": 119,
+                "start": 111
+              }
+            }
+          ],
+          "page_image_sha256": "81f43f854b07bd4f513d9714e691146183813ab79cd5d198cbba10854838d190",
+          "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+        },
+        "source_context": {
+          "table_contexts": [
+            {
+              "rows": [
+                {
+                  "cells": [
+                    {
+                      "text": "字段",
+                      "column_index": 0
+                    },
+                    {
+                      "text": "说明",
+                      "column_index": 1
+                    }
+                  ],
+                  "row_index": 0
+                },
+                {
+                  "cells": [
+                    {
+                      "text": "关联普通机构",
+                      "column_index": 0
+                    },
+                    {
+                      "text": "下拉选择,从已存在的普通机构中选择,建立与普通机构的关联。有了就不用\n编辑了,直接读取",
+                      "column_index": 1
+                    }
+                  ],
+                  "row_index": 4
+                }
+              ],
+              "table_id": "P0003-GRID0001"
+            }
+          ]
+        },
+        "status": "effective",
+        "value_policy": "exact"
+      },
+      {
+        "status": "effective",
+        "fact_id": "DOC288-P0003-f7",
+        "scope_id": "EV-0004",
+        "assertion": "联系人字段表示机构联系人。",
+        "governed_by": [],
+        "value_policy": "exact",
+        "source_anchor": {
+          "block_id": "P0003-T0008",
+          "table_cell": {
+            "table_id": "P0003-GRID0001",
+            "row_index": 5,
+            "column_index": 1
+          },
+          "document_id": 288,
+          "page_number": 3,
+          "source_kind": "document",
+          "source_segments": [
+            {
+              "text": "机构联系人。",
+              "block_id": "P0003-T0008",
+              "source_span": {
+                "end": 130,
+                "start": 124
+              }
+            }
+          ],
+          "page_image_sha256": "81f43f854b07bd4f513d9714e691146183813ab79cd5d198cbba10854838d190",
+          "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+        },
+        "source_context": {
+          "table_contexts": [
+            {
+              "rows": [
+                {
+                  "cells": [
+                    {
+                      "text": "字段",
+                      "column_index": 0
+                    },
+                    {
+                      "text": "说明",
+                      "column_index": 1
+                    }
+                  ],
+                  "row_index": 0
+                },
+                {
+                  "cells": [
+                    {
+                      "text": "联系人",
+                      "column_index": 0
+                    },
+                    {
+                      "text": "机构联系人。",
+                      "column_index": 1
+                    }
+                  ],
+                  "row_index": 5
+                }
+              ],
+              "table_id": "P0003-GRID0001"
+            }
+          ]
+        },
+        "governed_values": []
+      },
+      {
+        "status": "effective",
+        "fact_id": "DOC288-P0003-f8",
+        "scope_id": "EV-0004",
+        "assertion": "电话字段表示机构联系电话。",
+        "governed_by": [],
+        "value_policy": "exact",
+        "source_anchor": {
+          "block_id": "P0003-T0009",
+          "table_cell": {
+            "table_id": "P0003-GRID0001",
+            "row_index": 6,
+            "column_index": 1
+          },
+          "document_id": 288,
+          "page_number": 3,
+          "source_kind": "document",
+          "source_segments": [
+            {
+              "text": "机构联系电话。",
+              "block_id": "P0003-T0009",
+              "source_span": {
+                "end": 141,
+                "start": 134
+              }
+            }
+          ],
+          "page_image_sha256": "81f43f854b07bd4f513d9714e691146183813ab79cd5d198cbba10854838d190",
+          "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+        },
+        "source_context": {
+          "table_contexts": [
+            {
+              "rows": [
+                {
+                  "cells": [
+                    {
+                      "text": "字段",
+                      "column_index": 0
+                    },
+                    {
+                      "text": "说明",
+                      "column_index": 1
+                    }
+                  ],
+                  "row_index": 0
+                },
+                {
+                  "cells": [
+                    {
+                      "text": "电话",
+                      "column_index": 0
+                    },
+                    {
+                      "text": "机构联系电话。",
+                      "column_index": 1
+                    }
+                  ],
+                  "row_index": 6
+                }
+              ],
+              "table_id": "P0003-GRID0001"
+            }
+          ]
+        },
+        "governed_values": []
+      },
+      {
+        "status": "effective",
+        "fact_id": "DOC288-P0004-f1",
+        "scope_id": "EV-0007",
+        "assertion": "创建页面底部提供「‹返回」和「确定」按钮，点击「确定」完成创建。",
+        "governed_by": [],
+        "value_policy": "exact",
+        "source_anchor": {
+          "quote": "• ⻚面底部提供「‹返回」与「确定」按钮,点击「确定」完成创建。",
+          "block_id": "P0004-T0001",
+          "document_id": 288,
+          "page_number": 4,
+          "source_kind": "document",
+          "source_span": {
+            "end": 32,
+            "start": 0
+          },
+          "page_image_sha256": "7e6e830b17b78b089b57fe33b6c82d2709d58d612ee0f73e108b5ac237cf1081",
+          "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+        },
+        "governed_values": []
+      },
+      {
+        "status": "effective",
+        "fact_id": "DOC288-P0004-f2",
+        "scope_id": "EV-0007",
+        "assertion": "机构ID由系统生成。",
+        "governed_by": [],
+        "value_policy": "runtime_configured",
+        "source_anchor": {
+          "quote": "• 机构ID由系统生成,示例为1000231。",
+          "block_id": "P0004-T0002",
+          "document_id": 288,
+          "page_number": 4,
+          "source_kind": "document",
+          "source_span": {
+            "end": 56,
+            "start": 33
+          },
+          "page_image_sha256": "7e6e830b17b78b089b57fe33b6c82d2709d58d612ee0f73e108b5ac237cf1081",
+          "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+        },
+        "governed_values": [
+          "1000231"
+        ]
+      },
+      {
+        "status": "effective",
+        "fact_id": "DOC288-P0004-f3",
+        "scope_id": "EV-0007",
+        "assertion": "新建一级分销机构不产生门店。",
+        "governed_by": [],
+        "value_policy": "exact",
+        "source_anchor": {
+          "quote": "• 新建一级分销机构不产生⻔店;机构成立后其名下⻔店只能随二级分销机构及⻔店新增流程产生",
+          "block_id": "P0004-T0003",
+          "document_id": 288,
+          "page_number": 4,
+          "source_kind": "document",
+          "source_span": {
+            "end": 101,
+            "start": 57
+          },
+          "page_image_sha256": "7e6e830b17b78b089b57fe33b6c82d2709d58d612ee0f73e108b5ac237cf1081",
+          "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+        },
+        "governed_values": []
+      },
+      {
+        "status": "effective",
+        "fact_id": "DOC288-P0004-f4",
+        "scope_id": "EV-0007",
+        "assertion": "一级分销机构成立后，其名下门店只能随二级分销机构及门店新增流程产生。",
+        "governed_by": [],
+        "value_policy": "exact",
+        "source_anchor": {
+          "quote": "• 新建一级分销机构不产生⻔店;机构成立后其名下⻔店只能随二级分销机构及⻔店新增流程产生",
+          "block_id": "P0004-T0003",
+          "document_id": 288,
+          "page_number": 4,
+          "source_kind": "document",
+          "source_span": {
+            "end": 101,
+            "start": 57
+          },
+          "page_image_sha256": "7e6e830b17b78b089b57fe33b6c82d2709d58d612ee0f73e108b5ac237cf1081",
+          "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+        },
+        "governed_values": []
+      },
+      {
+        "status": "effective",
+        "fact_id": "DOC288-P0004-f5",
+        "scope_id": "EV-0007",
+        "assertion": "审批需要二次确认。",
+        "governed_by": [],
+        "value_policy": "exact",
+        "source_anchor": {
+          "quote": "• 审批记得二次确认",
+          "block_id": "P0004-T0004",
+          "document_id": 288,
+          "page_number": 4,
+          "source_kind": "document",
+          "source_span": {
+            "end": 112,
+            "start": 102
+          },
+          "page_image_sha256": "7e6e830b17b78b089b57fe33b6c82d2709d58d612ee0f73e108b5ac237cf1081",
+          "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+        },
+        "governed_values": []
+      },
+      {
+        "status": "effective",
+        "fact_id": "DOC288-P0004-f6",
+        "scope_id": "EV-0007",
+        "assertion": "开通一级分销机构免费，不收取开通费用。",
+        "governed_by": [],
+        "value_policy": "exact",
+        "source_anchor": {
+          "quote": "• 开通一级分销机构免费,不收取开通费用。",
+          "block_id": "P0004-T0006",
+          "document_id": 288,
+          "page_number": 4,
+          "source_kind": "document",
+          "source_span": {
+            "end": 141,
+            "start": 120
+          },
+          "page_image_sha256": "7e6e830b17b78b089b57fe33b6c82d2709d58d612ee0f73e108b5ac237cf1081",
+          "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+        },
+        "governed_values": []
+      },
+      {
+        "status": "effective",
+        "fact_id": "DOC288-P0004-f7",
+        "scope_id": "EV-0007",
+        "assertion": "每开通1个二级分销机构，按其固定1个门店充值¥10000.00，由一级分销机构承担。",
+        "governed_by": [],
+        "value_policy": "exact",
+        "source_anchor": {
+          "quote": "• 每开通1个二级分销机构,按其固定1个⻔店充值¥10000.00,由一级分销机构承担。",
+          "block_id": "P0004-T0007",
+          "document_id": 288,
+          "page_number": 4,
+          "source_kind": "document",
+          "source_span": {
+            "end": 186,
+            "start": 142
+          },
+          "page_image_sha256": "7e6e830b17b78b089b57fe33b6c82d2709d58d612ee0f73e108b5ac237cf1081",
+          "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+        },
+        "governed_values": []
+      },
+      {
+        "status": "effective",
+        "fact_id": "DOC288-P0004-f8",
+        "scope_id": "EV-0007",
+        "assertion": "合作方案仅开放「一级分销」类型。",
+        "governed_by": [],
+        "value_policy": "exact",
+        "source_anchor": {
+          "quote": "• 合作方案仅开放「一级分销」类型;一级分销机构是管理节点,自身不开放⻔店。",
+          "block_id": "P0004-T0008",
+          "document_id": 288,
+          "page_number": 4,
+          "source_kind": "document",
+          "source_span": {
+            "end": 225,
+            "start": 187
+          },
+          "page_image_sha256": "7e6e830b17b78b089b57fe33b6c82d2709d58d612ee0f73e108b5ac237cf1081",
+          "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+        },
+        "governed_values": []
+      },
+      {
+        "status": "effective",
+        "fact_id": "DOC288-P0004-f9",
+        "scope_id": "EV-0007",
+        "assertion": "一级分销机构是管理节点，自身不开放门店。",
+        "governed_by": [],
+        "value_policy": "exact",
+        "source_anchor": {
+          "quote": "• 合作方案仅开放「一级分销」类型;一级分销机构是管理节点,自身不开放⻔店。",
+          "block_id": "P0004-T0008",
+          "document_id": 288,
+          "page_number": 4,
+          "source_kind": "document",
+          "source_span": {
+            "end": 225,
+            "start": 187
+          },
+          "page_image_sha256": "7e6e830b17b78b089b57fe33b6c82d2709d58d612ee0f73e108b5ac237cf1081",
+          "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+        },
+        "governed_values": []
+      },
+      {
+        "status": "effective",
+        "fact_id": "DOC288-P0004-f10",
+        "scope_id": "EV-0007",
+        "assertion": "缴费类型弹窗由原六类入口精简为仅保留两类入口。",
+        "governed_by": [],
+        "value_policy": "exact",
+        "source_anchor": {
+          "quote": "【变更】缴费类型弹窗由原六类入口精简为两类,仅保留以下入口:",
+          "block_id": "P0004-T0012",
+          "document_id": 288,
+          "page_number": 4,
+          "source_kind": "document",
+          "source_span": {
+            "end": 271,
+            "start": 241
+          },
+          "page_image_sha256": "7e6e830b17b78b089b57fe33b6c82d2709d58d612ee0f73e108b5ac237cf1081",
+          "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+        },
+        "governed_values": []
+      },
+      {
+        "status": "effective",
+        "fact_id": "DOC288-P0004-f11",
+        "scope_id": "EV-0010",
+        "assertion": "缴费类型「新建二级分校机构」可用，用于为一级分销机构开通合作方案，并为其名下二级分销机构门店充值。",
+        "governed_by": [],
+        "value_policy": "exact",
+        "source_anchor": {
+          "block_id": "P0004-I0003",
+          "document_id": 288,
+          "page_number": 4,
+          "source_kind": "document",
+          "image_region": {
+            "x": 0.018878,
+            "y": 0.637828,
+            "width": 0.432944,
+            "height": 0.178164
+          },
+          "page_image_sha256": "7e6e830b17b78b089b57fe33b6c82d2709d58d612ee0f73e108b5ac237cf1081",
+          "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+        },
+        "governed_values": []
+      },
+      {
+        "status": "effective",
+        "fact_id": "DOC288-P0004-f12",
+        "scope_id": "EV-0010",
+        "assertion": "缴费类型「申请优惠券」可用，用于申请机构优惠券。",
+        "governed_by": [],
+        "value_policy": "exact",
+        "source_anchor": {
+          "block_id": "P0004-I0003",
+          "document_id": 288,
+          "page_number": 4,
+          "source_kind": "document",
+          "image_region": {
+            "x": 0.018878,
+            "y": 0.637828,
+            "width": 0.432944,
+            "height": 0.178164
+          },
+          "page_image_sha256": "7e6e830b17b78b089b57fe33b6c82d2709d58d612ee0f73e108b5ac237cf1081",
+          "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+        },
+        "governed_values": []
+      },
+      {
+        "status": "effective",
+        "fact_id": "DOC288-P0004-f13",
+        "scope_id": "EV-0008",
+        "assertion": "一级分销机构开通审批页面设有「未处理」和「已处理」标签。",
+        "governed_by": [],
+        "value_policy": "exact",
+        "source_anchor": {
+          "block_id": "P0004-I0001",
+          "document_id": 288,
+          "page_number": 4,
+          "source_kind": "document",
+          "image_region": {
+            "x": 0.049084,
+            "y": 0.161239,
+            "width": 0.43672,
+            "height": 0.180837
+          },
+          "page_image_sha256": "7e6e830b17b78b089b57fe33b6c82d2709d58d612ee0f73e108b5ac237cf1081",
+          "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+        },
+        "governed_values": []
+      },
+      {
+        "status": "effective",
+        "fact_id": "DOC288-P0004-f14",
+        "scope_id": "EV-0008",
+        "assertion": "未处理审批页面提供机构名称／提交人搜索框及搜索按钮。",
+        "governed_by": [],
+        "value_policy": "exact",
+        "source_anchor": {
+          "block_id": "P0004-I0001",
+          "document_id": 288,
+          "page_number": 4,
+          "source_kind": "document",
+          "image_region": {
+            "x": 0.049084,
+            "y": 0.161239,
+            "width": 0.43672,
+            "height": 0.180837
+          },
+          "page_image_sha256": "7e6e830b17b78b089b57fe33b6c82d2709d58d612ee0f73e108b5ac237cf1081",
+          "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+        },
+        "governed_values": []
+      },
+      {
+        "status": "effective",
+        "fact_id": "DOC288-P0004-f15",
+        "scope_id": "EV-0008",
+        "assertion": "未处理审批页面提供导出按钮。",
+        "governed_by": [],
+        "value_policy": "exact",
+        "source_anchor": {
+          "block_id": "P0004-I0001",
+          "document_id": 288,
+          "page_number": 4,
+          "source_kind": "document",
+          "image_region": {
+            "x": 0.049084,
+            "y": 0.161239,
+            "width": 0.43672,
+            "height": 0.180837
+          },
+          "page_image_sha256": "7e6e830b17b78b089b57fe33b6c82d2709d58d612ee0f73e108b5ac237cf1081",
+          "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+        },
+        "governed_values": []
+      },
+      {
+        "status": "effective",
+        "fact_id": "DOC288-P0004-f16",
+        "scope_id": "EV-0008",
+        "assertion": "未处理列表中的审批中记录展示「详情」「通过」「拒绝」操作。",
+        "governed_by": [],
+        "value_policy": "exact",
+        "source_anchor": {
+          "block_id": "P0004-I0001",
+          "document_id": 288,
+          "page_number": 4,
+          "source_kind": "document",
+          "image_region": {
+            "x": 0.049084,
+            "y": 0.161239,
+            "width": 0.43672,
+            "height": 0.180837
+          },
+          "page_image_sha256": "7e6e830b17b78b089b57fe33b6c82d2709d58d612ee0f73e108b5ac237cf1081",
+          "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+        },
+        "governed_values": []
+      },
+      {
+        "status": "effective",
+        "fact_id": "DOC288-P0004-f17",
+        "scope_id": "EV-0008",
+        "assertion": "审批列表展示申请ID、机构、关联线索、关联普通机构、联系人、电话、提交人、提交时间、状态及操作列。",
+        "governed_by": [],
+        "value_policy": "exact",
+        "source_anchor": {
+          "block_id": "P0004-I0001",
+          "document_id": 288,
+          "page_number": 4,
+          "source_kind": "document",
+          "image_region": {
+            "x": 0.049084,
+            "y": 0.161239,
+            "width": 0.43672,
+            "height": 0.180837
+          },
+          "page_image_sha256": "7e6e830b17b78b089b57fe33b6c82d2709d58d612ee0f73e108b5ac237cf1081",
+          "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+        },
+        "governed_values": []
+      },
+      {
+        "status": "effective",
+        "fact_id": "DOC288-P0004-f18",
+        "scope_id": "EV-0009",
+        "assertion": "已处理审批列表展示已通过和已拒绝状态的记录，所展示记录均有「详情」操作。",
+        "governed_by": [],
+        "value_policy": "exact",
+        "source_anchor": {
+          "block_id": "P0004-I0002",
+          "document_id": 288,
+          "page_number": 4,
+          "source_kind": "document",
+          "image_region": {
+            "x": 0.516009,
+            "y": 0.161239,
+            "width": 0.43672,
+            "height": 0.177273
+          },
+          "page_image_sha256": "7e6e830b17b78b089b57fe33b6c82d2709d58d612ee0f73e108b5ac237cf1081",
+          "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+        },
+        "governed_values": []
+      },
+      {
+        "status": "effective",
+        "fact_id": "DOC288-P0004-f19",
+        "scope_id": "EV-0009",
+        "assertion": "已处理审批页面提供机构名称／提交人搜索框、搜索按钮和导出按钮。",
+        "governed_by": [],
+        "value_policy": "exact",
+        "source_anchor": {
+          "block_id": "P0004-I0002",
+          "document_id": 288,
+          "page_number": 4,
+          "source_kind": "document",
+          "image_region": {
+            "x": 0.516009,
+            "y": 0.161239,
+            "width": 0.43672,
+            "height": 0.177273
+          },
+          "page_image_sha256": "7e6e830b17b78b089b57fe33b6c82d2709d58d612ee0f73e108b5ac237cf1081",
+          "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+        },
+        "governed_values": []
+      },
+      {
+        "status": "effective",
+        "fact_id": "DOC288-P0004-f20",
+        "scope_id": "EV-0008",
+        "assertion": "审批列表展示分页控件。",
+        "governed_by": [],
+        "value_policy": "exact",
+        "source_anchor": {
+          "block_id": "P0004-I0001",
+          "document_id": 288,
+          "page_number": 4,
+          "source_kind": "document",
+          "image_region": {
+            "x": 0.049084,
+            "y": 0.161239,
+            "width": 0.43672,
+            "height": 0.180837
+          },
+          "page_image_sha256": "7e6e830b17b78b089b57fe33b6c82d2709d58d612ee0f73e108b5ac237cf1081",
+          "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+        },
+        "governed_values": []
+      },
+      {
+        "status": "effective",
+        "fact_id": "DOC288-P0005-f1",
+        "scope_id": "EV-0011",
+        "assertion": "新增门店缴费入口已移除，不再展示。",
+        "governed_by": [],
+        "value_policy": "exact",
+        "source_anchor": {
+          "quote": "• 已移除的入口(不再展示):新增⻔店缴费、城市/区域新增⻔店、⻔店续费、新版升级代理。",
+          "block_id": "P0005-T0001",
+          "document_id": 288,
+          "page_number": 5,
+          "source_kind": "document",
+          "source_span": {
+            "end": 44,
+            "start": 0
+          },
+          "page_image_sha256": "d3820304d8c036a690d40a9b024f77af0562f11a96b69b57b6831f8e384c4b1b",
+          "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+        },
+        "governed_values": []
+      },
+      {
+        "status": "effective",
+        "fact_id": "DOC288-P0005-f2",
+        "scope_id": "EV-0011",
+        "assertion": "城市/区域新增门店入口已移除，不再展示。",
+        "governed_by": [],
+        "value_policy": "exact",
+        "source_anchor": {
+          "quote": "• 已移除的入口(不再展示):新增⻔店缴费、城市/区域新增⻔店、⻔店续费、新版升级代理。",
+          "block_id": "P0005-T0001",
+          "document_id": 288,
+          "page_number": 5,
+          "source_kind": "document",
+          "source_span": {
+            "end": 44,
+            "start": 0
+          },
+          "page_image_sha256": "d3820304d8c036a690d40a9b024f77af0562f11a96b69b57b6831f8e384c4b1b",
+          "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+        },
+        "governed_values": []
+      },
+      {
+        "status": "effective",
+        "fact_id": "DOC288-P0005-f3",
+        "scope_id": "EV-0011",
+        "assertion": "门店续费入口已移除，不再展示。",
+        "governed_by": [],
+        "value_policy": "exact",
+        "source_anchor": {
+          "quote": "• 已移除的入口(不再展示):新增⻔店缴费、城市/区域新增⻔店、⻔店续费、新版升级代理。",
+          "block_id": "P0005-T0001",
+          "document_id": 288,
+          "page_number": 5,
+          "source_kind": "document",
+          "source_span": {
+            "end": 44,
+            "start": 0
+          },
+          "page_image_sha256": "d3820304d8c036a690d40a9b024f77af0562f11a96b69b57b6831f8e384c4b1b",
+          "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+        },
+        "governed_values": []
+      },
+      {
+        "status": "effective",
+        "fact_id": "DOC288-P0005-f4",
+        "scope_id": "EV-0011",
+        "assertion": "新版升级代理入口已移除，不再展示。",
+        "governed_by": [],
+        "value_policy": "exact",
+        "source_anchor": {
+          "quote": "• 已移除的入口(不再展示):新增⻔店缴费、城市/区域新增⻔店、⻔店续费、新版升级代理。",
+          "block_id": "P0005-T0001",
+          "document_id": 288,
+          "page_number": 5,
+          "source_kind": "document",
+          "source_span": {
+            "end": 44,
+            "start": 0
+          },
+          "page_image_sha256": "d3820304d8c036a690d40a9b024f77af0562f11a96b69b57b6831f8e384c4b1b",
+          "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+        },
+        "governed_values": []
+      },
+      {
+        "status": "effective",
+        "fact_id": "DOC288-P0005-f5",
+        "scope_id": "EV-0011",
+        "assertion": "缴费操作仅对普通机构与一级分销机构开放。",
+        "governed_by": [],
+        "value_policy": "exact",
+        "source_anchor": {
+          "quote": "• 缴费操作仅对普通机构与一级分销机构开放;二级分销机构不开放缴费操作,原因⻅「4.⻔店新",
+          "block_id": "P0005-T0002",
+          "document_id": 288,
+          "page_number": 5,
+          "source_kind": "document",
+          "source_span": {
+            "end": 90,
+            "start": 45
+          },
+          "page_image_sha256": "d3820304d8c036a690d40a9b024f77af0562f11a96b69b57b6831f8e384c4b1b",
+          "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+        },
+        "governed_values": []
+      },
+      {
+        "status": "effective",
+        "fact_id": "DOC288-P0005-f6",
+        "scope_id": "EV-0011",
+        "assertion": "二级分销机构不开放缴费操作。",
+        "governed_by": [],
+        "value_policy": "exact",
+        "source_anchor": {
+          "quote": "• 缴费操作仅对普通机构与一级分销机构开放;二级分销机构不开放缴费操作,原因⻅「4.⻔店新",
+          "block_id": "P0005-T0002",
+          "document_id": 288,
+          "page_number": 5,
+          "source_kind": "document",
+          "source_span": {
+            "end": 90,
+            "start": 45
+          },
+          "page_image_sha256": "d3820304d8c036a690d40a9b024f77af0562f11a96b69b57b6831f8e384c4b1b",
+          "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+        },
+        "governed_values": []
+      },
+      {
+        "status": "effective",
+        "fact_id": "DOC288-P0005-f10",
+        "scope_id": "EV-0012",
+        "assertion": "机构详情画面展示合同期限、销售、机构ID和机构类型。",
+        "governed_by": [],
+        "value_policy": "exact",
+        "source_anchor": {
+          "block_id": "P0005-I0001",
+          "document_id": 288,
+          "page_number": 5,
+          "source_kind": "document",
+          "image_region": {
+            "x": 0.247936,
+            "y": 0.03296,
+            "width": 0.50594,
+            "height": 0.662771
+          },
+          "page_image_sha256": "d3820304d8c036a690d40a9b024f77af0562f11a96b69b57b6831f8e384c4b1b",
+          "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+        },
+        "governed_values": []
+      },
+      {
+        "status": "effective",
+        "fact_id": "DOC288-P0005-f11",
+        "scope_id": "EV-0012",
+        "assertion": "机构详情画面展示合伙人信息，包括星级合伙人。",
+        "governed_by": [],
+        "value_policy": "exact",
+        "source_anchor": {
+          "block_id": "P0005-I0001",
+          "document_id": 288,
+          "page_number": 5,
+          "source_kind": "document",
+          "image_region": {
+            "x": 0.247936,
+            "y": 0.03296,
+            "width": 0.50594,
+            "height": 0.662771
+          },
+          "page_image_sha256": "d3820304d8c036a690d40a9b024f77af0562f11a96b69b57b6831f8e384c4b1b",
+          "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+        },
+        "governed_values": []
+      },
+      {
+        "status": "effective",
+        "fact_id": "DOC288-P0005-f12",
+        "scope_id": "EV-0012",
+        "assertion": "机构详情画面的账户余额区域展示预充值账户余额和代金券余额。",
+        "governed_by": [],
+        "value_policy": "exact",
+        "source_anchor": {
+          "block_id": "P0005-I0001",
+          "document_id": 288,
+          "page_number": 5,
+          "source_kind": "document",
+          "image_region": {
+            "x": 0.247936,
+            "y": 0.03296,
+            "width": 0.50594,
+            "height": 0.662771
+          },
+          "page_image_sha256": "d3820304d8c036a690d40a9b024f77af0562f11a96b69b57b6831f8e384c4b1b",
+          "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+        },
+        "governed_values": []
+      },
+      {
+        "status": "effective",
+        "fact_id": "DOC288-P0006-F001",
+        "scope_id": "EV-0013",
+        "assertion": "从缴费类型弹窗中的“新建二级分校机构”入口可进入“新增合作方案”页面。",
+        "governed_by": [],
+        "value_policy": "exact",
+        "source_anchor": {
+          "quote": "• 入口:缴费类型弹窗中的「新建二级分校机构」,进入「新增合作方案」⻚面。",
+          "block_id": "P0006-T0002",
+          "document_id": 288,
+          "page_number": 6,
+          "source_kind": "document",
+          "source_span": {
+            "end": 49,
+            "start": 12
+          },
+          "page_image_sha256": "d409ed10a77288f75e0205e3dfb31b7cc40c1ffe75eef765bf4743f54596f243",
+          "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+        },
+        "governed_values": []
+      },
+      {
+        "status": "effective",
+        "fact_id": "DOC288-P0006-F002",
+        "scope_id": "EV-0013",
+        "assertion": "“新增合作方案”页面涉及机构名称、投资人姓名、投资人电话、地址、预充值二级分销机构门店和预充值门店金额字段。",
+        "governed_by": [],
+        "value_policy": "exact",
+        "source_anchor": {
+          "quote": "• 涉及字段:机构名称、投资人姓名、投资人电话、地址、预充值二级分销机构⻔店、预充值⻔店金",
+          "block_id": "P0006-T0003",
+          "document_id": 288,
+          "page_number": 6,
+          "source_kind": "document",
+          "source_span": {
+            "end": 95,
+            "start": 50
+          },
+          "page_image_sha256": "d409ed10a77288f75e0205e3dfb31b7cc40c1ffe75eef765bf4743f54596f243",
+          "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+        },
+        "governed_values": []
+      },
+      {
+        "status": "effective",
+        "fact_id": "DOC288-P0006-F003",
+        "scope_id": "EV-0013",
+        "assertion": "机构名称、投资人姓名和投资人电话为文本填写项。",
+        "governed_by": [],
+        "value_policy": "exact",
+        "source_anchor": {
+          "quote": "◦ 机构名称、投资人姓名、投资人电话为文本填写项。",
+          "block_id": "P0006-T0006",
+          "document_id": 288,
+          "page_number": 6,
+          "source_kind": "document",
+          "source_span": {
+            "end": 132,
+            "start": 107
+          },
+          "page_image_sha256": "d409ed10a77288f75e0205e3dfb31b7cc40c1ffe75eef765bf4743f54596f243",
+          "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+        },
+        "governed_values": []
+      },
+      {
+        "status": "effective",
+        "fact_id": "DOC288-P0006-F004",
+        "scope_id": "EV-0013",
+        "assertion": "地址为选择项，可选择城市或区域，支持“修改定位”，并需填写详细地址。",
+        "governed_by": [],
+        "value_policy": "exact",
+        "source_anchor": {
+          "quote": "◦ 地址为选择项(选择城市/区域),支持「修改定位」,并需填写详细地址。",
+          "block_id": "P0006-T0007",
+          "document_id": 288,
+          "page_number": 6,
+          "source_kind": "document",
+          "source_span": {
+            "end": 169,
+            "start": 133
+          },
+          "page_image_sha256": "d409ed10a77288f75e0205e3dfb31b7cc40c1ffe75eef765bf4743f54596f243",
+          "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+        },
+        "governed_values": []
+      },
+      {
+        "status": "effective",
+        "fact_id": "DOC288-P0006-F005",
+        "scope_id": "EV-0013",
+        "assertion": "预充值二级分销机构门店为数量步进项，页面说明其只有一个。",
+        "governed_by": [],
+        "value_policy": "exact",
+        "source_anchor": {
+          "quote": "◦ 预充值二级分销机构⻔店为数量步进项,只有一个",
+          "block_id": "P0006-T0008",
+          "document_id": 288,
+          "page_number": 6,
+          "source_kind": "document",
+          "source_span": {
+            "end": 194,
+            "start": 170
+          },
+          "page_image_sha256": "d409ed10a77288f75e0205e3dfb31b7cc40c1ffe75eef765bf4743f54596f243",
+          "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+        },
+        "governed_values": []
+      },
+      {
+        "status": "effective",
+        "fact_id": "DOC288-P0006-F006",
+        "scope_id": "EV-0013",
+        "assertion": "预充值门店金额为系统计算展示项，不可手工填写。",
+        "governed_by": [],
+        "value_policy": "exact",
+        "source_anchor": {
+          "quote": "◦ 预充值⻔店金额为系统计算展示项,不可手工填写。",
+          "block_id": "P0006-T0009",
+          "document_id": 288,
+          "page_number": 6,
+          "source_kind": "document",
+          "source_span": {
+            "end": 220,
+            "start": 195
+          },
+          "page_image_sha256": "d409ed10a77288f75e0205e3dfb31b7cc40c1ffe75eef765bf4743f54596f243",
+          "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+        },
+        "governed_values": []
+      },
+      {
+        "status": "effective",
+        "fact_id": "DOC288-P0008-f1",
+        "scope_id": "EV-0016",
+        "assertion": "一级分销机构可为其名下二级分销机构的门店设置学习卡价格，销售可代为操作。",
+        "governed_by": [],
+        "value_policy": "exact",
+        "source_anchor": {
+          "quote": "• 操作主体与范围:一级分销机构(可由销售代为操作)为其名下二级分销机构的⻔店设置学习卡价",
+          "block_id": "P0008-T0001",
+          "document_id": 288,
+          "page_number": 8,
+          "source_kind": "document",
+          "source_span": {
+            "end": 45,
+            "start": 0
+          },
+          "page_image_sha256": "c1004e31bb7f07449dcbe3ad1aeca584561f72f3cd22465868d4357a6511a8ab",
+          "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+        },
+        "governed_values": []
+      },
+      {
+        "status": "effective",
+        "fact_id": "DOC288-P0008-f2",
+        "scope_id": "EV-0016",
+        "assertion": "不能设置非名下机构及其门店的价格。",
+        "governed_by": [],
+        "value_policy": "exact",
+        "source_anchor": {
+          "quote": "格;不能设置非名下机构及其⻔店的价格。",
+          "block_id": "P0008-T0002",
+          "document_id": 288,
+          "page_number": 8,
+          "source_kind": "document",
+          "source_span": {
+            "end": 65,
+            "start": 46
+          },
+          "page_image_sha256": "c1004e31bb7f07449dcbe3ad1aeca584561f72f3cd22465868d4357a6511a8ab",
+          "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+        },
+        "governed_values": []
+      },
+      {
+        "status": "effective",
+        "fact_id": "DOC288-P0008-f3",
+        "scope_id": "EV-0016",
+        "assertion": "设置价格时先确定二级分销机构，再确定该机构下的门店。",
+        "governed_by": [],
+        "value_policy": "exact",
+        "source_anchor": {
+          "quote": "• 设置维度为两级:先确定二级分销机构,再确定该机构下的⻔店,价格记录在⻔店维度。",
+          "block_id": "P0008-T0003",
+          "document_id": 288,
+          "page_number": 8,
+          "source_kind": "document",
+          "source_span": {
+            "end": 107,
+            "start": 66
+          },
+          "page_image_sha256": "c1004e31bb7f07449dcbe3ad1aeca584561f72f3cd22465868d4357a6511a8ab",
+          "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+        },
+        "governed_values": []
+      },
+      {
+        "status": "effective",
+        "fact_id": "DOC288-P0008-f4",
+        "scope_id": "EV-0016",
+        "assertion": "价格记录在门店维度。",
+        "governed_by": [],
+        "value_policy": "exact",
+        "source_anchor": {
+          "quote": "• 设置维度为两级:先确定二级分销机构,再确定该机构下的⻔店,价格记录在⻔店维度。",
+          "block_id": "P0008-T0003",
+          "document_id": 288,
+          "page_number": 8,
+          "source_kind": "document",
+          "source_span": {
+            "end": 107,
+            "start": 66
+          },
+          "page_image_sha256": "c1004e31bb7f07449dcbe3ad1aeca584561f72f3cd22465868d4357a6511a8ab",
+          "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+        },
+        "governed_values": []
+      },
+      {
+        "status": "effective",
+        "fact_id": "DOC288-P0008-f5",
+        "scope_id": "EV-0016",
+        "assertion": "切换二级分销机构时，门店自动重置为该机构的第一个门店。",
+        "governed_by": [],
+        "value_policy": "exact",
+        "source_anchor": {
+          "quote": "• 切换二级分销机构时,⻔店自动重置为该机构的第一个⻔店;切换⻔店时,该⻔店已填写的价格随",
+          "block_id": "P0008-T0004",
+          "document_id": 288,
+          "page_number": 8,
+          "source_kind": "document",
+          "source_span": {
+            "end": 153,
+            "start": 108
+          },
+          "page_image_sha256": "c1004e31bb7f07449dcbe3ad1aeca584561f72f3cd22465868d4357a6511a8ab",
+          "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+        },
+        "governed_values": []
+      },
+      {
+        "status": "effective",
+        "fact_id": "DOC288-P0008-f6",
+        "scope_id": "EV-0016",
+        "assertion": "切换门店时，随之刷新该门店已填写的价格。",
+        "governed_by": [],
+        "value_policy": "exact",
+        "source_anchor": {
+          "quote": "• 切换二级分销机构时,⻔店自动重置为该机构的第一个⻔店;切换⻔店时,该⻔店已填写的价格随",
+          "block_id": "P0008-T0004",
+          "document_id": 288,
+          "page_number": 8,
+          "source_kind": "document",
+          "source_span": {
+            "end": 153,
+            "start": 108
+          },
+          "page_image_sha256": "c1004e31bb7f07449dcbe3ad1aeca584561f72f3cd22465868d4357a6511a8ab",
+          "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+        },
+        "governed_values": []
+      },
+      {
+        "status": "effective",
+        "fact_id": "DOC288-P0008-f7",
+        "scope_id": "EV-0016",
+        "assertion": "每个卡种包含关联机构价格与成本价两项。",
+        "governed_by": [],
+        "value_policy": "exact",
+        "source_anchor": {
+          "quote": "• 每个卡种包含两项:关联机构价格与成本价。关联机构价格是一级分销机构为其名下二级分销机构",
+          "block_id": "P0008-T0006",
+          "document_id": 288,
+          "page_number": 8,
+          "source_kind": "document",
+          "source_span": {
+            "end": 204,
+            "start": 159
+          },
+          "page_image_sha256": "c1004e31bb7f07449dcbe3ad1aeca584561f72f3cd22465868d4357a6511a8ab",
+          "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+        },
+        "governed_values": []
+      },
+      {
+        "status": "effective",
+        "fact_id": "DOC288-P0008-f8",
+        "scope_id": "EV-0016",
+        "assertion": "关联机构价格是一级分销机构为其名下二级分销机构的门店设置的学习卡价格，由销售填写。",
+        "governed_by": [],
+        "value_policy": "exact",
+        "source_anchor": {
+          "quote": "的⻔店设置的学习卡价格,由销售填写;成本价由系统根据关联机构价格自动计算,不可修改。",
+          "block_id": "P0008-T0007",
+          "document_id": 288,
+          "page_number": 8,
+          "source_kind": "document",
+          "source_span": {
+            "end": 247,
+            "start": 205
+          },
+          "page_image_sha256": "c1004e31bb7f07449dcbe3ad1aeca584561f72f3cd22465868d4357a6511a8ab",
+          "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+        },
+        "governed_values": []
+      },
+      {
+        "status": "effective",
+        "fact_id": "DOC288-P0008-f9",
+        "scope_id": "EV-0016",
+        "assertion": "成本价由系统根据关联机构价格自动计算，不可修改。",
+        "governed_by": [],
+        "value_policy": "exact",
+        "source_anchor": {
+          "quote": "的⻔店设置的学习卡价格,由销售填写;成本价由系统根据关联机构价格自动计算,不可修改。",
+          "block_id": "P0008-T0007",
+          "document_id": 288,
+          "page_number": 8,
+          "source_kind": "document",
+          "source_span": {
+            "end": 247,
+            "start": 205
+          },
+          "page_image_sha256": "c1004e31bb7f07449dcbe3ad1aeca584561f72f3cd22465868d4357a6511a8ab",
+          "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+        },
+        "governed_values": []
+      },
+      {
+        "status": "effective",
+        "fact_id": "DOC288-P0008-f10",
+        "scope_id": "EV-0016",
+        "assertion": "现行卡种共9个：月卡1个、引流卡1个、学期卡4个、计时卡1个、全科单月卡2个。",
+        "governed_by": [],
+        "value_policy": "exact",
+        "source_anchor": {
+          "quote": "• 现行卡种共9个:月卡1个、引流卡1个、学期卡4个、计时卡1个、全科单月卡2个。",
+          "block_id": "P0008-T0008",
+          "document_id": 288,
+          "page_number": 8,
+          "source_kind": "document",
+          "source_span": {
+            "end": 289,
+            "start": 248
+          },
+          "page_image_sha256": "c1004e31bb7f07449dcbe3ad1aeca584561f72f3cd22465868d4357a6511a8ab",
+          "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+        },
+        "governed_values": []
+      },
+      {
+        "status": "effective",
+        "fact_id": "DOC288-P0008-f11",
+        "scope_id": "EV-0016",
+        "assertion": "未填写的卡种，成本价显示为「―」。",
+        "governed_by": [],
+        "value_policy": "exact",
+        "source_anchor": {
+          "quote": "• 未填写的卡种,成本价显示为「―」。",
+          "block_id": "P0008-T0009",
+          "document_id": 288,
+          "page_number": 8,
+          "source_kind": "document",
+          "source_span": {
+            "end": 309,
+            "start": 290
+          },
+          "page_image_sha256": "c1004e31bb7f07449dcbe3ad1aeca584561f72f3cd22465868d4357a6511a8ab",
+          "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+        },
+        "governed_values": []
+      },
+      {
+        "status": "effective",
+        "fact_id": "DOC288-P0008-f12",
+        "scope_id": "EV-0016",
+        "assertion": "填写完成后提交平台审核，提交后进入审核中状态，审核通过后生效。",
+        "governed_by": [],
+        "value_policy": "exact",
+        "source_anchor": {
+          "quote": "• 填写完成后提交平台审核;提交后进入审核中状态,审核通过后生效。(审核用现在的逻辑,还是",
+          "block_id": "P0008-T0010",
+          "document_id": 288,
+          "page_number": 8,
+          "source_kind": "document",
+          "source_span": {
+            "end": 355,
+            "start": 310
+          },
+          "page_image_sha256": "c1004e31bb7f07449dcbe3ad1aeca584561f72f3cd22465868d4357a6511a8ab",
+          "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+        },
+        "governed_values": []
+      },
+      {
+        "status": "effective",
+        "fact_id": "DOC288-P0009-f1",
+        "scope_id": "EV-0019",
+        "assertion": "每个二级分销机构固定有1个门店。",
+        "governed_by": [],
+        "value_policy": "exact",
+        "source_anchor": {
+          "quote": "• 【变更】每个二级分销机构固定1个⻔店,一级分销机构详情不再展示⻔店数量;名下机构列表仅",
+          "block_id": "P0009-T0002",
+          "document_id": 288,
+          "page_number": 9,
+          "source_kind": "document",
+          "source_span": {
+            "end": 54,
+            "start": 9
+          },
+          "page_image_sha256": "89c14aa001fb54bcac1e56db9ffe29a579a1048e0241f9b6925338b6354fd96e",
+          "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+        },
+        "governed_values": []
+      },
+      {
+        "status": "effective",
+        "fact_id": "DOC288-P0009-f2",
+        "scope_id": "EV-0019",
+        "assertion": "一级分销机构详情不再展示门店数量。",
+        "governed_by": [],
+        "value_policy": "exact",
+        "source_anchor": {
+          "quote": "• 【变更】每个二级分销机构固定1个⻔店,一级分销机构详情不再展示⻔店数量;名下机构列表仅",
+          "block_id": "P0009-T0002",
+          "document_id": 288,
+          "page_number": 9,
+          "source_kind": "document",
+          "source_span": {
+            "end": 54,
+            "start": 9
+          },
+          "page_image_sha256": "89c14aa001fb54bcac1e56db9ffe29a579a1048e0241f9b6925338b6354fd96e",
+          "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+        },
+        "governed_values": []
+      },
+      {
+        "status": "effective",
+        "fact_id": "DOC288-P0009-f3",
+        "scope_id": "EV-0019",
+        "assertion": "名下机构列表仅展示序号、机构名称、机构ID和「学习卡价格」入口。",
+        "governed_by": [],
+        "value_policy": "exact",
+        "source_anchor": {
+          "quote": "展示序号、机构名称、机构ID与「学习卡价格」入口,汇总行仅显示「名下机构N个」。",
+          "block_id": "P0009-T0003",
+          "document_id": 288,
+          "page_number": 9,
+          "source_kind": "document",
+          "source_span": {
+            "end": 95,
+            "start": 55
+          },
+          "page_image_sha256": "89c14aa001fb54bcac1e56db9ffe29a579a1048e0241f9b6925338b6354fd96e",
+          "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+        },
+        "governed_values": []
+      },
+      {
+        "status": "effective",
+        "fact_id": "DOC288-P0009-f4",
+        "scope_id": "EV-0019",
+        "assertion": "名下机构列表汇总行仅显示「名下机构N个」。",
+        "governed_by": [],
+        "value_policy": "exact",
+        "source_anchor": {
+          "quote": "展示序号、机构名称、机构ID与「学习卡价格」入口,汇总行仅显示「名下机构N个」。",
+          "block_id": "P0009-T0003",
+          "document_id": 288,
+          "page_number": 9,
+          "source_kind": "document",
+          "source_span": {
+            "end": 95,
+            "start": 55
+          },
+          "page_image_sha256": "89c14aa001fb54bcac1e56db9ffe29a579a1048e0241f9b6925338b6354fd96e",
+          "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+        },
+        "governed_values": []
+      },
+      {
+        "status": "effective",
+        "fact_id": "DOC288-P0009-f5",
+        "scope_id": "EV-0019",
+        "assertion": "一级分销机构可查看名下二级分销机构的机构与门店详情。",
+        "governed_by": [],
+        "value_policy": "exact",
+        "source_anchor": {
+          "quote": "• 一级分销机构可查看名下二级分销机构的机构与⻔店详情。",
+          "block_id": "P0009-T0004",
+          "document_id": 288,
+          "page_number": 9,
+          "source_kind": "document",
+          "source_span": {
+            "end": 124,
+            "start": 96
+          },
+          "page_image_sha256": "89c14aa001fb54bcac1e56db9ffe29a579a1048e0241f9b6925338b6354fd96e",
+          "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+        },
+        "governed_values": []
+      },
+      {
+        "status": "effective",
+        "fact_id": "DOC288-P0009-f6",
+        "scope_id": "EV-0019",
+        "assertion": "机构信息包含机构名称、机构ID、机构类型、联系人、联系电话、销售与合同期限。",
+        "governed_by": [],
+        "value_policy": "exact",
+        "source_anchor": {
+          "quote": "• 机构信息包含机构名称、机构ID、机构类型、联系人、联系电话、销售与合同期限。",
+          "block_id": "P0009-T0005",
+          "document_id": 288,
+          "page_number": 9,
+          "source_kind": "document",
+          "source_span": {
+            "end": 165,
+            "start": 125
+          },
+          "page_image_sha256": "89c14aa001fb54bcac1e56db9ffe29a579a1048e0241f9b6925338b6354fd96e",
+          "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+        },
+        "governed_values": []
+      },
+      {
+        "status": "effective",
+        "fact_id": "DOC288-P0009-f7",
+        "scope_id": "EV-0019",
+        "assertion": "关联一级分销机构仅对二级分销机构展示，内容为其所属一级分销机构的名称与机构ID。",
+        "governed_by": [],
+        "value_policy": "exact",
+        "source_anchor": {
+          "quote": "• 关联一级分销机构仅对二级分销机构展示,内容为其所属一级分销机构的名称与机构ID。",
+          "block_id": "P0009-T0006",
+          "document_id": 288,
+          "page_number": 9,
+          "source_kind": "document",
+          "source_span": {
+            "end": 208,
+            "start": 166
+          },
+          "page_image_sha256": "89c14aa001fb54bcac1e56db9ffe29a579a1048e0241f9b6925338b6354fd96e",
+          "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+        },
+        "governed_values": []
+      },
+      {
+        "status": "effective",
+        "fact_id": "DOC288-P0009-f8",
+        "scope_id": "EV-0019",
+        "assertion": "消耗统计按门店维度列出总计、购买卡和购买设备。",
+        "governed_by": [],
+        "value_policy": "exact",
+        "source_anchor": {
+          "quote": "• 消耗统计按⻔店维度列出总计、购买卡、购买设备,并按年月查看。",
+          "block_id": "P0009-T0007",
+          "document_id": 288,
+          "page_number": 9,
+          "source_kind": "document",
+          "source_span": {
+            "end": 241,
+            "start": 209
+          },
+          "page_image_sha256": "89c14aa001fb54bcac1e56db9ffe29a579a1048e0241f9b6925338b6354fd96e",
+          "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+        },
+        "governed_values": []
+      },
+      {
+        "status": "effective",
+        "fact_id": "DOC288-P0009-f9",
+        "scope_id": "EV-0019",
+        "assertion": "消耗统计按年月查看。",
+        "governed_by": [],
+        "value_policy": "exact",
+        "source_anchor": {
+          "quote": "• 消耗统计按⻔店维度列出总计、购买卡、购买设备,并按年月查看。",
+          "block_id": "P0009-T0007",
+          "document_id": 288,
+          "page_number": 9,
+          "source_kind": "document",
+          "source_span": {
+            "end": 241,
+            "start": 209
+          },
+          "page_image_sha256": "89c14aa001fb54bcac1e56db9ffe29a579a1048e0241f9b6925338b6354fd96e",
+          "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+        },
+        "governed_values": []
+      },
+      {
+        "status": "effective",
+        "fact_id": "DOC288-P0009-f10",
+        "scope_id": "EV-0019",
+        "assertion": "统计数据每天24点定时更新。",
+        "governed_by": [],
+        "value_policy": "exact",
+        "source_anchor": {
+          "quote": "• 统计数据每天24点定时更新。",
+          "block_id": "P0009-T0008",
+          "document_id": 288,
+          "page_number": 9,
+          "source_kind": "document",
+          "source_span": {
+            "end": 258,
+            "start": 242
+          },
+          "page_image_sha256": "89c14aa001fb54bcac1e56db9ffe29a579a1048e0241f9b6925338b6354fd96e",
+          "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+        },
+        "governed_values": []
+      },
+      {
+        "status": "effective",
+        "fact_id": "DOC288-P0009-f11",
+        "scope_id": "EV-0020",
+        "assertion": "普通机构和二级分销机构的信息范围包括机构信息及本机构门店列表，门店包含名称与地址。",
+        "governed_by": [],
+        "value_policy": "exact",
+        "source_anchor": {
+          "block_id": "P0009-I0001",
+          "document_id": 288,
+          "page_number": 9,
+          "source_kind": "document",
+          "image_region": {
+            "x": 0.018878,
+            "y": 0.068593,
+            "width": 0.432944,
+            "height": 0.245867
+          },
+          "page_image_sha256": "89c14aa001fb54bcac1e56db9ffe29a579a1048e0241f9b6925338b6354fd96e",
+          "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+        },
+        "governed_values": []
+      },
+      {
+        "status": "effective",
+        "fact_id": "DOC288-P0009-f12",
+        "scope_id": "EV-0020",
+        "assertion": "普通机构和二级分销机构的门店统计包含名称、设备数和总计行。",
+        "governed_by": [],
+        "value_policy": "exact",
+        "source_anchor": {
+          "block_id": "P0009-I0001",
+          "document_id": 288,
+          "page_number": 9,
+          "source_kind": "document",
+          "image_region": {
+            "x": 0.018878,
+            "y": 0.068593,
+            "width": 0.432944,
+            "height": 0.245867
+          },
+          "page_image_sha256": "89c14aa001fb54bcac1e56db9ffe29a579a1048e0241f9b6925338b6354fd96e",
+          "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+        },
+        "governed_values": []
+      },
+      {
+        "status": "effective",
+        "fact_id": "DOC288-P0009-f13",
+        "scope_id": "EV-0020",
+        "assertion": "一级分销机构的信息范围包括机构信息和名下机构信息，含名下机构数汇总值及每个名下二级分销机构的名称、机构ID。",
+        "governed_by": [],
+        "value_policy": "exact",
+        "source_anchor": {
+          "block_id": "P0009-I0001",
+          "document_id": 288,
+          "page_number": 9,
+          "source_kind": "document",
+          "image_region": {
+            "x": 0.018878,
+            "y": 0.068593,
+            "width": 0.432944,
+            "height": 0.245867
+          },
+          "page_image_sha256": "89c14aa001fb54bcac1e56db9ffe29a579a1048e0241f9b6925338b6354fd96e",
+          "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+        },
+        "governed_values": []
+      },
+      {
+        "status": "effective",
+        "fact_id": "DOC288-P0009-f14",
+        "scope_id": "EV-0020",
+        "assertion": "一级分销机构的机构与门店统计包含机构名称、设备数和总计行。",
+        "governed_by": [],
+        "value_policy": "exact",
+        "source_anchor": {
+          "block_id": "P0009-I0001",
+          "document_id": 288,
+          "page_number": 9,
+          "source_kind": "document",
+          "image_region": {
+            "x": 0.018878,
+            "y": 0.068593,
+            "width": 0.432944,
+            "height": 0.245867
+          },
+          "page_image_sha256": "89c14aa001fb54bcac1e56db9ffe29a579a1048e0241f9b6925338b6354fd96e",
+          "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+        },
+        "governed_values": []
+      },
+      {
+        "status": "effective",
+        "fact_id": "DOC288-P0010-f1",
+        "scope_id": "EV-0021",
+        "assertion": "机构列表可按缴费状态筛选，选项包括未缴费和已缴费。",
+        "governed_by": [],
+        "value_policy": "exact",
+        "source_anchor": {
+          "quote": "• 筛选维度:缴费状态(未缴费/已缴费)、机构范围(我的机构/全部)、机构类型(普通机构/一",
+          "block_id": "P0010-T0001",
+          "document_id": 288,
+          "page_number": 10,
+          "source_kind": "document",
+          "source_span": {
+            "end": 46,
+            "start": 0
+          },
+          "page_image_sha256": "3ae159ec4c65f05bdc54643f5f015c2add3e7ac367a4ed9ec34e9134a0ed7fee",
+          "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+        },
+        "governed_values": []
+      },
+      {
+        "status": "effective",
+        "fact_id": "DOC288-P0010-f2",
+        "scope_id": "EV-0021",
+        "assertion": "机构列表可按机构范围筛选，选项包括我的机构和全部。",
+        "governed_by": [],
+        "value_policy": "exact",
+        "source_anchor": {
+          "quote": "• 筛选维度:缴费状态(未缴费/已缴费)、机构范围(我的机构/全部)、机构类型(普通机构/一",
+          "block_id": "P0010-T0001",
+          "document_id": 288,
+          "page_number": 10,
+          "source_kind": "document",
+          "source_span": {
+            "end": 46,
+            "start": 0
+          },
+          "page_image_sha256": "3ae159ec4c65f05bdc54643f5f015c2add3e7ac367a4ed9ec34e9134a0ed7fee",
+          "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+        },
+        "governed_values": []
+      },
+      {
+        "status": "effective",
+        "fact_id": "DOC288-P0010-f3",
+        "scope_id": "EV-0021",
+        "assertion": "机构列表可按机构类型筛选，选项包括普通机构、一级分销机构和二级分销机构。",
+        "governed_by": [],
+        "value_policy": "exact",
+        "source_anchor": {
+          "quote": "级分销机构/二级分销机构)。",
+          "block_id": "P0010-T0002",
+          "document_id": 288,
+          "page_number": 10,
+          "source_kind": "document",
+          "source_span": {
+            "end": 61,
+            "start": 47
+          },
+          "page_image_sha256": "3ae159ec4c65f05bdc54643f5f015c2add3e7ac367a4ed9ec34e9134a0ed7fee",
+          "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+        },
+        "governed_values": []
+      },
+      {
+        "status": "effective",
+        "fact_id": "DOC288-P0010-f4",
+        "scope_id": "EV-0021",
+        "assertion": "同一筛选维度内，全部与具体选项互斥。",
+        "governed_by": [],
+        "value_policy": "exact",
+        "source_anchor": {
+          "quote": "• 同一筛选维度内,「全部」与具体选项互斥。",
+          "block_id": "P0010-T0003",
+          "document_id": 288,
+          "page_number": 10,
+          "source_kind": "document",
+          "source_span": {
+            "end": 84,
+            "start": 62
+          },
+          "page_image_sha256": "3ae159ec4c65f05bdc54643f5f015c2add3e7ac367a4ed9ec34e9134a0ed7fee",
+          "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+        },
+        "governed_values": []
+      },
+      {
+        "status": "effective",
+        "fact_id": "DOC288-P0010-f5",
+        "scope_id": "EV-0021",
+        "assertion": "机构列表展示机构名称、机构类型、销售或联系人、已缴金额与合同金额。",
+        "governed_by": [],
+        "value_policy": "exact",
+        "source_anchor": {
+          "quote": "• 列表展示机构名称、机构类型、销售或联系人、已缴金额与合同金额。",
+          "block_id": "P0010-T0004",
+          "document_id": 288,
+          "page_number": 10,
+          "source_kind": "document",
+          "source_span": {
+            "end": 118,
+            "start": 85
+          },
+          "page_image_sha256": "3ae159ec4c65f05bdc54643f5f015c2add3e7ac367a4ed9ec34e9134a0ed7fee",
+          "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+        },
+        "governed_values": []
+      },
+      {
+        "status": "effective",
+        "fact_id": "DOC288-P0010-f6",
+        "scope_id": "EV-0021",
+        "assertion": "机构类型为二级分销机构时，列表条目在联系人或销售下方展示关联的一级分销机构名称，采用紫色「关联一级」标签加一级机构名。",
+        "governed_by": [],
+        "value_policy": "exact",
+        "source_anchor": {
+          "quote": "关联的一级分销机构名称(紫色「关联一级」标签+一级机构名);一级分销机构与普通机构条目",
+          "block_id": "P0010-T0006",
+          "document_id": 288,
+          "page_number": 10,
+          "source_kind": "document",
+          "source_span": {
+            "end": 208,
+            "start": 165
+          },
+          "page_image_sha256": "3ae159ec4c65f05bdc54643f5f015c2add3e7ac367a4ed9ec34e9134a0ed7fee",
+          "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+        },
+        "governed_values": []
+      },
+      {
+        "status": "effective",
+        "fact_id": "DOC288-P0010-f7",
+        "scope_id": "EV-0021",
+        "assertion": "一级分销机构与普通机构的列表条目不展示关联一级机构的行。",
+        "governed_by": [],
+        "value_policy": "exact",
+        "source_anchor": {
+          "quote": "不展示该行。",
+          "block_id": "P0010-T0007",
+          "document_id": 288,
+          "page_number": 10,
+          "source_kind": "document",
+          "source_span": {
+            "end": 215,
+            "start": 209
+          },
+          "page_image_sha256": "3ae159ec4c65f05bdc54643f5f015c2add3e7ac367a4ed9ec34e9134a0ed7fee",
+          "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+        },
+        "governed_values": []
+      },
+      {
+        "status": "effective",
+        "fact_id": "DOC288-P0010-f8",
+        "scope_id": "EV-0022",
+        "assertion": "筛选弹层标题为「查看筛选」，展示关闭控件和「确定」按钮。",
+        "governed_by": [],
+        "value_policy": "exact",
+        "source_anchor": {
+          "block_id": "P0010-I0001",
+          "document_id": 288,
+          "page_number": 10,
+          "source_kind": "document",
+          "image_region": {
+            "x": 0.049084,
+            "y": 0.03296,
+            "width": 0.370016,
+            "height": 0.456991
+          },
+          "page_image_sha256": "3ae159ec4c65f05bdc54643f5f015c2add3e7ac367a4ed9ec34e9134a0ed7fee",
+          "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+        },
+        "governed_values": []
+      },
+      {
+        "status": "effective",
+        "fact_id": "DOC288-P0010-f9",
+        "scope_id": "EV-0022",
+        "assertion": "筛选弹层的缴费状态区域展示未缴费、已缴费和全部复选项。",
+        "governed_by": [],
+        "value_policy": "exact",
+        "source_anchor": {
+          "block_id": "P0010-I0001",
+          "document_id": 288,
+          "page_number": 10,
+          "source_kind": "document",
+          "image_region": {
+            "x": 0.049084,
+            "y": 0.03296,
+            "width": 0.370016,
+            "height": 0.456991
+          },
+          "page_image_sha256": "3ae159ec4c65f05bdc54643f5f015c2add3e7ac367a4ed9ec34e9134a0ed7fee",
+          "asset_source_sha256": "1adaee6e9486d9bd0b94487991c5aedda450dd5491467ecc692225db1fd66689"
+        },
+        "governed_values": []
+      }
+    ],
+    "case_budget": 50,
+    "batch_case_limit": 5
+  }
+}

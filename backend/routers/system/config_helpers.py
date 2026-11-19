@@ -221,10 +221,8 @@ def validate_text_model(
     try:
         client = build_provider(provider, api_key, base_url, model_name)
         if isinstance(client, DashScopeProvider):
-            # Text input box validation strategy:
-            # 1) validate as text model first
-            # 2) if it fails, validate as multimodal with text-only payload
-            details = client.test_connection_text_then_multimodal(model=model_name)
+            # 按当前模型路由验证一次，失败不再切换接口发起第二次调用。
+            details = client.test_connection(model=model_name)
         else:
             details = client.test_connection()
         success = bool(details.get("success"))
@@ -276,10 +274,13 @@ def validate_vision_model(
     base_url: Optional[str],
     model_name: str,
     label: str,
+    reasoning_effort: str | None = None,
 ) -> Dict[str, Any]:
     started = time.time()
     try:
         client = build_provider(provider, api_key, base_url, model_name)
+        if isinstance(client, OpenAICompatibleProvider):
+            client.reasoning_effort = reasoning_effort
         probe_messages = [
             {
                 "role": "user",

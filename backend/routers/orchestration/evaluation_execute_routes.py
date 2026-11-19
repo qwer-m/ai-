@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
@@ -10,9 +11,12 @@ from core.db.database import get_db
 from core.db.model_defs import AgentRun, User
 from core.processing.file_processing import is_image_filename, parse_file_bytes, parse_image_bytes_with_fallback
 from core.processing.workflow import WorkflowKind, WorkflowStage, log_workflow_trace
+from modules.automation_components.services.test_case_file_parser import evaluation_spreadsheet_reference
 from modules.agent_platform.automation_evaluation import execute_automation_evaluation
 from modules.agent_platform.serialization import serialize_run
-from modules.agent_platform.test_case_evaluation import create_test_case_evaluation_run
+from modules.agent_platform.test_case_evaluation import EvaluationAlreadyRunningError, create_test_case_evaluation_run
+from modules.agent_platform.test_case_evaluation_feedback import evaluation_source_inputs
+from modules.knowledge_base_components.document.offline_parse_support import validate_parsed_content
 from modules.orchestration.context_orchestrator import context_orchestrator
 from routers.orchestration.evaluation_shared import get_owned_project, is_attachment_ocr_ok
 from schemas.automation.api_testing import APITestEvalRequest
@@ -24,6 +28,7 @@ router = APIRouter()
 @router.post("/evaluate-test-cases", status_code=202)
 async def evaluate_test_cases(
     reference_content: str = Form(""),
+    baseline_groups: str = Form("[]"),
     project_id: int = Form(...),
     run_id: int = Form(...),
     file: UploadFile | None = File(None),
@@ -31,6 +36,16 @@ async def evaluate_test_cases(
     current_user: User = Depends(get_current_user),
 ):
     get_owned_project(project_id, db, current_user.id)
+    if (reference_content or "").strip() and file is not None:
+        raise HTTPException(status_code=422, detail="人工最终用例只能选择填写文本或上传文件中的一种")
+
+    try:
+        groups = json.loads(baseline_groups)
+        if (not isinstance(groups, list) or any(not isinstance(g, str) or not g.strip() for g in groups)
+                or len(set(groups)) != len(groups)):
+            raise ValueError
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail="评测基线应为无重复的正文要求数组") from error
 
     source_run = (
         db.query(AgentRun)
@@ -43,16 +58,10 @@ async def evaluate_test_cases(
     )
     if source_run is None:
         raise HTTPException(status_code=404, detail="Agent Run 不存在")
-    generation_artifact = (source_run.run_context or {}).get("artifacts", {}).get("test_generation")
-    generated_cases = generation_artifact.get("test_cases") if isinstance(generation_artifact, dict) else None
-    if not isinstance(generated_cases, list) or not generated_cases:
-        raise HTTPException(status_code=409, detail="Agent Run 尚未生成测试用例产物")
-
-    requirement_text = str(
-        (source_run.input_payload or {}).get("requirement")
-        or generation_artifact.get("requirement")
-        or ""
-    )
+    try:
+        requirement_text, generated_cases, _ = evaluation_source_inputs(source_run)
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
     final_reference = (reference_content or "").strip()
     upload_persist: dict[str, Any] = {
         "filename": "",
@@ -82,6 +91,14 @@ async def evaluate_test_cases(
             upload_persist["ocr_source"] = ocr_meta.get("ocr_source", "unknown")
             upload_persist["cloud_fallback"] = bool(ocr_meta.get("cloud_fallback", False))
             upload_persist["ocr_error"] = ocr_meta.get("error", "") or ocr_meta.get("local_ocr_error", "")
+            if upload_persist["ocr_source"] not in {"local", "cloud"} or not is_attachment_ocr_ok(final_reference):
+                raise HTTPException(status_code=422, detail="图片未识别到可用的人工用例，请重新上传或填写文本")
+            upload_persist["ocr_ok"] = True
+        elif filename.lower().endswith((".xls", ".xlsx")):
+            try:
+                final_reference = evaluation_spreadsheet_reference(filename, raw_bytes)
+            except ValueError as error:
+                raise HTTPException(status_code=422, detail=str(error)) from error
         else:
             final_reference = parse_file_bytes(
                 filename=filename,
@@ -89,7 +106,10 @@ async def evaluate_test_cases(
                 db=db,
                 user_id=current_user.id,
             )
-        upload_persist["ocr_ok"] = is_attachment_ocr_ok(final_reference)
+        try:
+            validate_parsed_content(final_reference)
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
     if not final_reference:
         raise HTTPException(status_code=400, detail="请填写人工最终用例或上传文件")
 
@@ -100,10 +120,13 @@ async def evaluate_test_cases(
             user_id=current_user.id,
             source_run_id=run_id,
             requirement=requirement_text,
-            generated_cases=[dict(item) for item in generated_cases if isinstance(item, dict)],
+            generated_cases=generated_cases,
             reference_content=final_reference,
             upload=upload_persist,
+            baseline_groups=groups,
         )
+    except EvaluationAlreadyRunningError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"用例 Agent 评测失败：{exc}") from exc
 

@@ -48,11 +48,13 @@ def enqueue_task(
     business_id: Any | None = None,
     reason: str = "queued",
     queue: str = "celery",
+    task_id: str | None = None,
 ) -> TaskDispatchResult:
     normalized_name = task_name_value(task_name)
-    task_id = get_task_runtime().dispatch(task_name=normalized_name, kwargs=kwargs or {})
+    options = {"task_id": task_id} if task_id is not None else {}
+    dispatched_id = get_task_runtime().dispatch(task_name=normalized_name, kwargs=kwargs or {}, **options)
     return TaskDispatchResult(
-        task_id=str(task_id),
+        task_id=str(dispatched_id),
         task_name=normalized_name,
         reason=reason,
         business_type=business_type,

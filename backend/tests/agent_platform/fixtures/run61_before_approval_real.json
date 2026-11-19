@@ -1,0 +1,108 @@
+{
+  "run_id": 61,
+  "node_id": 413,
+  "approval_request": {
+    "kind": "source_conflicts",
+    "items": [
+      {
+        "id": "19368aaf99c89516553223307d5c9dc3b8e618e5547c3b9bca9c34933b50269a",
+        "kind": "source_conflict",
+        "facts": [
+          {
+            "fact_id": "DOC287-P0005-26",
+            "assertion": "数据只保留环节进度。",
+            "source_context": {}
+          },
+          {
+            "fact_id": "DOC287-P0009-5",
+            "assertion": "每次录音后保存评分结果。",
+            "source_context": {
+              "table_contexts": [
+                {
+                  "rows": [
+                    {
+                      "cells": [
+                        {
+                          "text": "",
+                          "column_index": 0
+                        },
+                        {
+                          "text": "",
+                          "column_index": 1
+                        },
+                        {
+                          "text": "每个单词可以多次录音练习,每次录音后重新评分,不限制次\n数。\n完成判定\n每个单词至少完成一次录音后,即可切换到下一个单词。全部\n单词都完成至少一次跟读练习后,即可进入下一环节。\n数据保存\n每次录音后保存评分结果,切换单词时保存当前进度,返回⻚\n面时保存整个环节进度。",
+                          "column_index": 2
+                        },
+                        {
+                          "text": "",
+                          "column_index": 3
+                        }
+                      ],
+                      "row_index": 0
+                    }
+                  ],
+                  "table_id": "P0009-GRID0002"
+                }
+              ]
+            }
+          }
+        ],
+        "reason": "总览限定只保留环节进度，语音跟读具体规则却要求每次录音保存评分结果。语音跟读是否作为额外保存评分的例外，还是取消评分保存要求？",
+        "conflict": {
+          "sides": [
+            {
+              "quote": "只保留环节进度",
+              "fact_id": "DOC287-P0005-26"
+            },
+            {
+              "quote": "每次录音后保存评分结果",
+              "fact_id": "DOC287-P0009-5"
+            }
+          ],
+          "subject": "学习环节数据保存范围（含语音跟读评分结果）",
+          "condition": "第5页环节总览的数据保存未排除语音跟读；第9页语音跟读规则适用于每次录音后，两者在该场景重叠，未声明例外或替代关系。",
+          "incompatibility": "仅保存环节进度排除了独立评分结果的保存，而语音跟读明确要求保存评分结果；不能在未说明评分属于进度或存在例外的情况下同时满足。"
+        },
+        "fact_ids": [
+          "DOC287-P0005-26",
+          "DOC287-P0009-5"
+        ],
+        "coverage_fragment": "数据只保留环节进度"
+      }
+    ],
+    "paused_at": "2026-11-13T04:52:38.295341",
+    "state_hash": "0f63d0fe967d7d6a3cf417a08e1a758f78d5927a7496c042199278432d8fee34"
+  },
+  "checkpoint": {
+    "budget": {
+      "limits": {
+        "input_tokens": 5000000,
+        "total_tokens": 5800000,
+        "output_tokens": 800000,
+        "attempted_requests": 360
+      },
+      "charged": {
+        "input_tokens": 1184343,
+        "total_tokens": 1233384,
+        "output_tokens": 49041,
+        "attempted_requests": 95
+      },
+      "request_scope": "sdk_model_calls",
+      "reported_usage": {
+        "requests": 95,
+        "input_tokens": 1184343,
+        "total_tokens": 1233384,
+        "output_tokens": 49041
+      },
+      "pending_requests": 0,
+      "completed_requests": 95,
+      "interrupted_requests": 0
+    }
+  },
+  "run_context": {
+    "logical_task_id": "task-e8d8534cdc2e4997ac632c2a77b2f2ba",
+    "deadline_at": "2026-11-13T05:35:37.487029",
+    "stage_deadline_at": "2026-11-13T05:35:37.487029"
+  }
+}

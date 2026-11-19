@@ -200,6 +200,7 @@ export function DashboardContent({
           {activeTab === 'kb' ? (
             <Suspense fallback={renderLazyFallback('加载知识库模块...')}>
               <KnowledgeBase
+                key={projectId ?? 'knowledge-base-none'}
                 projectId={projectId}
                 onLog={(msg: string) => {
                   void onSystemLog(msg);

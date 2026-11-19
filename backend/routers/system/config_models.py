@@ -2,10 +2,21 @@ from __future__ import annotations
 
 from typing import List, Optional
 
+from core.ai.reasoning import ReasoningEffort
+
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
-class ConfigValidateRequest(BaseModel):
+class ReasoningConfigRequest(BaseModel):
+    reasoning_effort: Optional[ReasoningEffort] = None
+    turbo_reasoning_effort: Optional[ReasoningEffort] = None
+    review_reasoning_effort: Optional[ReasoningEffort] = None
+    vl_reasoning_effort: Optional[ReasoningEffort] = None
+
+
+class ConfigValidateRequest(ReasoningConfigRequest):
+    validation_token: Optional[str] = Field(default=None, max_length=32000)
+    refresh_validation: bool = False
     provider: str
     api_key: Optional[str] = None
     base_url: Optional[str] = None
@@ -29,28 +40,8 @@ class ConfigValidateRequest(BaseModel):
     tesseract_manual_override: Optional[bool] = None
 
 
-class ConfigSaveRequest(BaseModel):
-    provider: str
-    api_key: Optional[str] = None
-    base_url: Optional[str] = None
-    model_name: str
-    vl_model_name: Optional[str] = None
-    turbo_model_name: Optional[str] = None
-    turbo_provider: Optional[str] = None
-    turbo_api_key: Optional[str] = None
-    turbo_base_url: Optional[str] = None
-    turbo_follow_main: Optional[bool] = True
-    review_model_name: Optional[str] = None
-    review_provider: Optional[str] = None
-    review_api_key: Optional[str] = None
-    review_base_url: Optional[str] = None
-    review_follow_main: Optional[bool] = True
-    vl_provider: Optional[str] = None
-    vl_api_key: Optional[str] = None
-    vl_base_url: Optional[str] = None
-    vl_follow_main: Optional[bool] = True
-    tesseract_path: Optional[str] = None
-    tesseract_manual_override: Optional[bool] = None
+class ConfigSaveRequest(ConfigValidateRequest):
+    pass
 
 
 class ConfigDetectRequest(BaseModel):
@@ -64,7 +55,7 @@ class ConfigQuotaRequest(BaseModel):
     model_name: Optional[str] = None
 
 
-class ConfigTestStreamRequest(BaseModel):
+class ConfigTestStreamRequest(ReasoningConfigRequest):
     model_config = ConfigDict(extra="forbid")
 
     provider: str = Field(min_length=1, max_length=64)

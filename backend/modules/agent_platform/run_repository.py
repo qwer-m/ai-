@@ -17,8 +17,7 @@ from core.db.model_defs import (
 from modules.knowledge_base_components.repositories.knowledge_document_repository import KnowledgeDocumentRepository
 from .definition_repository import AgentDefinitionRepository
 from .input_snapshots import pack_node_input, restore_node_input
-from .lifecycle import ACTIVE_RUN_STATUSES, TERMINAL_RUN_STATUSES
-from .retention import terminal_run_ids_to_delete
+from .lifecycle import ACTIVE_RUN_STATUSES
 from .sources import (
     RunSourceRecord, SourceSnapshot, historical_run_source_key, source_snapshot_columns,
 )
@@ -49,9 +48,130 @@ class AgentRunRepository:
             query = query.filter(AgentRun.user_id == user_id)
         return query.populate_existing().with_for_update().first()
 
+    def get_run_control_for_update(self, *, run_id: int) -> AgentRun | None:
+        """行动热事务只锁控制列，不装载完整运行产物。"""
+        return self.db.query(AgentRun).options(load_only(
+            AgentRun.id, AgentRun.user_id, AgentRun.project_id, AgentRun.status,
+            AgentRun.claim_token, AgentRun.heartbeat_at, AgentRun.lease_expires_at,
+        )).filter(AgentRun.id == run_id).populate_existing().with_for_update().first()
+
     def get_owned_run(self, *, run_id: int, user_id: int) -> AgentRun | None:
         return (
             self.db.query(AgentRun)
+            .filter(AgentRun.id == run_id, AgentRun.user_id == user_id)
+            .first()
+        )
+
+    def get_owned_run_summary(self, *, run_id: int, user_id: int) -> AgentRun | None:
+        """只读取运行摘要字段，避免详情接口的 JSON 大字段进入轮询链路。"""
+
+        query = (
+            self.db.query(AgentRun)
+            .options(
+                load_only(
+                    AgentRun.id,
+                    AgentRun.project_id,
+                    AgentRun.user_id,
+                    AgentRun.workflow_definition_id,
+                    AgentRun.status,
+                    AgentRun.current_node_key,
+                    AgentRun.input_payload,
+                    AgentRun.error_message,
+                    AgentRun.parent_run_id,
+                    AgentRun.task_id,
+                    AgentRun.created_at,
+                    AgentRun.started_at,
+                    AgentRun.finished_at,
+                )
+            )
+            .filter(AgentRun.id == run_id, AgentRun.user_id == user_id)
+        )
+
+        # 摘要需要展示尝试身份和契约 hash，但不能因为读取它们而加载整份
+        # run_context。MySQL JSON_EXTRACT 只投影这几个标量；测试替身没有
+        # add_columns 时仍沿用上面的轻量查询。
+        add_columns = getattr(query, "add_columns", None)
+        if callable(add_columns):
+            dialect = getattr(getattr(self.db, "bind", None), "dialect", None)
+            dialect_name = str(getattr(dialect, "name", "") or "").lower()
+
+            if dialect_name not in {"mysql", "sqlite"}:
+                row = query.first()
+                return row
+
+            def _json_scalar(path: str):
+                expression = func.json_extract(AgentRun.run_context, path)
+                # MySQL 的 JSON_EXTRACT 对字符串返回带引号值；SQLite 已经
+                # 返回标量。按方言拆开，避免 SQLite 测试库调用不存在的
+                # JSON_UNQUOTE。
+                return (
+                    func.json_unquote(expression)
+                    if dialect_name == "mysql"
+                    else expression
+                )
+
+            query = query.add_columns(
+                _json_scalar("$.run_attempt").label("_summary_run_attempt"),
+                _json_scalar("$.input_hash").label("_summary_input_hash"),
+                _json_scalar("$.logical_task_id").label("_summary_logical_task_id"),
+                _json_scalar("$.attempt_id").label("_summary_attempt_id"),
+                _json_scalar("$.checkpoint_schema_version").label("_summary_checkpoint_schema_version"),
+                _json_scalar("$.execution_contract.hash").label("_summary_contract_hash"),
+                _json_scalar("$.attempt_display_offset").label("_summary_attempt_display_offset"),
+            )
+
+        row = query.first()
+        if row is None:
+            return None
+        # SQLAlchemy 2.x 返回 Row，旧测试替身和部分方言可能返回 tuple；
+        # 两者都按位置读取，避免依赖 ORM 实体标签的方言差异。
+        if isinstance(row, tuple) or hasattr(row, "_mapping"):
+            values = tuple(row)
+        else:
+            return row
+        if len(values) < 7:
+            return values[0] if values else None
+        run, run_attempt, input_hash, logical_task_id, attempt_id, checkpoint_schema_version, contract_hash = values[:7]
+
+        def _text(value: Any) -> str | None:
+            if value is None:
+                return None
+            text = str(value).strip()
+            return text or None
+
+        summary_context: dict[str, Any] = {
+            "run_attempt": int(_text(run_attempt) or 1),
+            "attempt_display_offset": int(_text(values[7] if len(values) > 7 else None) or 0),
+            "input_hash": _text(input_hash),
+            "logical_task_id": _text(logical_task_id),
+            "attempt_id": _text(attempt_id),
+            "checkpoint_schema_version": (
+                int(_text(checkpoint_schema_version))
+                if _text(checkpoint_schema_version) is not None
+                else None
+            ),
+        }
+        if _text(contract_hash):
+            summary_context["execution_contract"] = {"hash": _text(contract_hash)}
+        # 这是仅供 serialize_run_summary 使用的投影，不是运行上下文的替代品。
+        setattr(run, "_summary_context", summary_context)
+        return run
+
+    def get_owned_run_metrics(self, *, run_id: int, user_id: int) -> AgentRun | None:
+        """读取 metrics 所需字段，禁止把完整运行输入/产物带入评估查询。"""
+
+        return (
+            self.db.query(AgentRun)
+            .options(
+                load_only(
+                    AgentRun.id,
+                    AgentRun.user_id,
+                    AgentRun.status,
+                    AgentRun.run_context,
+                    AgentRun.started_at,
+                    AgentRun.finished_at,
+                )
+            )
             .filter(AgentRun.id == run_id, AgentRun.user_id == user_id)
             .first()
         )
@@ -173,63 +293,26 @@ class AgentRunRepository:
         by_id = {int(row.id): row for row in rows}
         return [by_id[run_id] for run_id in ordered_ids if run_id in by_id]
 
-    def prune_terminal_run_history(
+
+    def get_active_run(
         self,
         *,
         project_id: int,
         user_id: int,
-        workflow_definition_id: int,
-        keep_run_id: int,
-        limit: int,
-    ) -> list[int]:
-        """删除同一需求来源的旧终态运行，其他文档的生成结果不受影响。"""
+        workflow_key: str,
+    ) -> AgentRun | None:
+        """返回工作台当前应展示的活动运行，不读取任何节点大字段。
 
-        # 运行产物包含大体积 JSON；清理历史时只读取轻量标识，避免 MySQL
-        # 为整行结果排序而耗尽 sort buffer。
-        workflow_definition_ids = [int(workflow_definition_id)]
-        workflow = self.db.get(AgentWorkflowDefinition, workflow_definition_id)
-        if workflow is not None:
-            workflow_definition_ids = self._definitions.list_workflow_definition_ids(
-                project_id=project_id,
-                workflow_key=workflow.workflow_key,
-            ) or workflow_definition_ids
+        工作台必须按业务工作流读取活动运行。过滤先解析工作流定义 id，再在 AgentRun 上执行，
+        避免把大 JSON 运行字段带入关联排序。
+        """
 
-        terminal_run_rows = sorted(
-            self.list_run_sources(
-                project_id=project_id, user_id=user_id,
-                workflow_definition_ids=workflow_definition_ids,
-                statuses=TERMINAL_RUN_STATUSES,
-            ),
-            key=lambda row: (row.finished_at or datetime.min, row.run_id), reverse=True,
+        workflow_definition_ids = self._definitions.list_workflow_definition_ids(
+            project_id=project_id,
+            workflow_key=workflow_key,
         )
-        delete_ids = terminal_run_ids_to_delete(
-            terminal_run_rows,
-            keep_run_id=keep_run_id,
-            limit=limit,
-        )
-        if not delete_ids:
-            return []
-
-        self.db.query(AgentRun).filter(
-            AgentRun.parent_run_id.in_(delete_ids)
-        ).update({AgentRun.parent_run_id: None}, synchronize_session=False)
-        self.db.query(AgentApproval).filter(
-            AgentApproval.run_id.in_(delete_ids)
-        ).delete(synchronize_session=False)
-        self.db.query(AgentRunEvent).filter(
-            AgentRunEvent.run_id.in_(delete_ids)
-        ).delete(synchronize_session=False)
-        self.db.query(AgentNodeRun).filter(
-            AgentNodeRun.run_id.in_(delete_ids)
-        ).delete(synchronize_session=False)
-        self.db.query(AgentRun).filter(AgentRun.id.in_(delete_ids)).delete(
-            synchronize_session=False
-        )
-        self.db.flush()
-        return delete_ids
-
-    def get_active_run(self, *, project_id: int, user_id: int) -> AgentRun | None:
-        """返回工作台当前应展示的活动运行，不读取任何节点大字段。"""
+        if not workflow_definition_ids:
+            return None
 
         rows = (
             self.db.query(AgentRun)
@@ -255,8 +338,11 @@ class AgentRunRepository:
                 AgentRun.user_id == user_id,
                 AgentRun.status.in_(ACTIVE_RUN_STATUSES),
             )
-            .all()
         )
+        rows = rows.filter(
+            AgentRun.workflow_definition_id.in_(workflow_definition_ids)
+        )
+        rows = rows.all()
         if not rows:
             return None
         running = [row for row in rows if row.status == "running"]
@@ -283,14 +369,9 @@ class AgentRunRepository:
         return restore_node_input(node_run, lambda node_id: self.db.get(AgentNodeRun, node_id))
 
     def write_node_input(self, node_run: AgentNodeRun, payload: dict[str, Any]) -> None:
-        """输入快照只复用本轮已经成功的输出，所有输入写入共用此边界。"""
-        sources = self.db.query(
-            AgentNodeRun.id, AgentNodeRun.run_id, AgentNodeRun.status, AgentNodeRun.output_payload,
-        ).filter(
-            AgentNodeRun.run_id == node_run.run_id,
-            AgentNodeRun.status == "success",
-        ).all()
-        node_run.input_payload = pack_node_input(node_run, payload, sources)
+        """完整输入内容寻址去重，节点与重试只保存稳定引用。"""
+        from .checkpoint_storage import store_node_input
+        store_node_input(self.db, node_run, payload)
 
     def finalize_unfinished_node_runs(
         self,
@@ -301,7 +382,7 @@ class AgentRunRepository:
         error_message: str,
         node_run_id: int | None = None,
     ) -> int:
-        """在调用方持有 Run 锁的终态事务中收尾预算，再结束未完成节点。"""
+        """持有 Run 锁时收尾失权或终止尝试的预算，再结束未完成节点。"""
         if status not in {"failed", "cancelled"}:
             raise ValueError("未完成节点只能由失败或取消的运行结束")
         # 先保存当前事务的节点检查点，再更新状态，避免稍后的 ORM 刷新覆盖批量终态。
@@ -342,6 +423,12 @@ class AgentRunRepository:
             return None
         return self.db.get(AgentNodeRun, int(latest_id))
 
+    def first_node_started_at(self, *, run_id: int, node_key: str) -> datetime | None:
+        """阶段预算以第一次执行为起点；只读取时间标量，避免加载历史大 JSON。"""
+        return self.db.query(func.min(AgentNodeRun.started_at)).filter(
+            AgentNodeRun.run_id == run_id, AgentNodeRun.node_key == node_key,
+        ).scalar()
+
     def list_reusable_node_run_ids(
         self,
         *,
@@ -354,9 +441,14 @@ class AgentRunRepository:
         """返回同一项目与工作流中可作为复用候选的成功节点主键。
 
         查询阶段只读取主键，防止节点输入输出的大 JSON 参与数据库排序。
-        候选运行必须整轮成功，失败或取消运行的中间结果不得复用。
+        纯计算节点的复用不依赖父运行成败；准入方仍须核对当前完整语义并重新验收。
         """
-
+        workflow = self.db.get(AgentWorkflowDefinition, run.workflow_definition_id)
+        if workflow is None:
+            return []
+        workflow_ids = self._definitions.list_workflow_definition_ids(
+            project_id=run.project_id, workflow_key=workflow.workflow_key,
+        )
         rows = (
             self.db.query(AgentNodeRun.id)
             .join(AgentRun, AgentRun.id == AgentNodeRun.run_id)
@@ -364,8 +456,7 @@ class AgentRunRepository:
                 AgentRun.id < run.id,
                 AgentRun.user_id == run.user_id,
                 AgentRun.project_id == run.project_id,
-                AgentRun.workflow_definition_id == run.workflow_definition_id,
-                AgentRun.status == "success",
+                AgentRun.workflow_definition_id.in_(workflow_ids),
                 AgentNodeRun.node_key == node_key,
                 AgentNodeRun.node_type == node_type,
                 AgentNodeRun.agent_definition_id == agent_definition_id,
@@ -392,6 +483,58 @@ class AgentRunRepository:
             .order_by(AgentRunEvent.sequence.asc())
             .limit(limit)
             .all()
+        )
+
+    def list_events_after(
+        self,
+        *,
+        run_id: int,
+        after_sequence: int,
+        limit: int,
+    ) -> list[AgentRunEvent]:
+        """按持久序号读取增量事件，避免轮询重复传输历史 payload。"""
+
+        if type(after_sequence) is not int or after_sequence < 0:
+            raise ValueError("after_sequence 必须是非负整数")
+        if type(limit) is not int or limit < 1:
+            raise ValueError("limit 必须是正整数")
+        return (
+            self.db.query(AgentRunEvent)
+            .filter(
+                AgentRunEvent.run_id == run_id,
+                AgentRunEvent.sequence > after_sequence,
+            )
+            .order_by(AgentRunEvent.sequence.asc())
+            .limit(limit)
+            .all()
+        )
+
+    def list_event_summaries(self, *, run_id: int, limit: int) -> list[AgentRunEvent]:
+        """只读取轨迹计数所需字段，避免 metrics 接口加载事件大 payload。"""
+
+        return (
+            self.db.query(AgentRunEvent)
+            .options(
+                load_only(
+                    AgentRunEvent.id,
+                    AgentRunEvent.sequence,
+                    AgentRunEvent.event_type,
+                )
+            )
+            .filter(AgentRunEvent.run_id == run_id)
+            .order_by(AgentRunEvent.sequence.asc())
+            .limit(limit)
+            .all()
+        )
+
+    def count_events(self, *, run_id: int) -> int:
+        """返回事件总数，供轨迹摘要区分完整统计和截断样本。"""
+
+        return int(
+            self.db.query(func.count(AgentRunEvent.id))
+            .filter(AgentRunEvent.run_id == run_id)
+            .scalar()
+            or 0
         )
 
     def list_approvals(self, *, run_id: int) -> list[AgentApproval]:

@@ -14,13 +14,14 @@ import {
 } from 'react-icons/fa';
 import { useAgentWorkspace } from '../agent-platform/useAgentWorkspace';
 import { AgentErrorDetails, AgentNodeDetailModal, JsonView } from './AgentNodeDetailModal';
+import { AgentConflictModal } from './AgentConflictModal';
+import { actualModelDisplay, executionAgent, executionDisplayStages, executionName, networkActivity, nodeProgress, workspaceExecution } from '../agent-platform/runPresentation';
+import type { ExecutionAgent } from '../agent-platform/runPresentation';
 import type {
-  AgentDefinition,
   AgentNodeRun,
   AgentRun,
-  AgentWorkflow,
+  AgentRunEvent,
   RunStatus,
-  WorkflowNode,
 } from '../agent-platform/types';
 
 type Props = {
@@ -33,7 +34,7 @@ type BusinessStageStatus = RunStatus | 'waiting';
 const statusLabel: Record<RunStatus, string> = {
   pending: '等待中',
   running: '运行中',
-  waiting_approval: '等待审批',
+  waiting_approval: '等待确认',
   success: '成功',
   failed: '失败',
   cancelled: '已取消',
@@ -64,6 +65,67 @@ const parseStatusLabel = {
   success: '可使用',
   failed: '解析失败',
 } as const;
+
+function eventLabel(event: AgentRunEvent): string {
+  const labels: Record<string, string> = {
+    run_started: '运行开始',
+    run_finished: '运行结束',
+    run_completed: '运行完成',
+    run_failed: '运行失败',
+    run_cancelled: '运行取消',
+    run_retry_spawned: '已创建重试运行',
+    run_created_from_retry: '已从失败任务继续',
+    run_history_pruned: '历史轨迹已清理',
+    run_dispatch_failed: '运行派发失败',
+    node_started: '节点开始',
+    node_finished: '节点结束',
+    node_completed: '节点完成',
+    node_failed: '节点失败',
+    node_retry_scheduled: '节点安排重试',
+    node_completed_batches: '节点批次完成',
+    tool_started: '工具开始',
+    tool_finished: '工具结束',
+    tool_failed: '工具失败',
+    map_item_started: '批次项开始',
+    map_item_completed: '批次项完成',
+    map_item_failed: '批次项失败',
+    agent_action_started: '自主行动开始',
+    agent_action_completed: '自主行动完成',
+    agent_action_resumed: '自主行动已恢复',
+    agent_action_failed: '自主行动失败',
+    agent_specialist_result_saved: '专家结果已保存',
+    approval_requested: '请求确认',
+    approval_decided: '确认完成',
+    conflicts_requested: '请求冲突确认',
+    approval_approved: '确认已通过',
+    approval_rejected: '确认已拒绝',
+    retry_scheduled: '安排重试',
+    run_recovery_deadline_expired: '恢复期限已过',
+    run_recovered: '运行已恢复',
+    run_dispatch_task_id_ignored: '忽略旧派发任务',
+    run_dispatch_failure_ignored: '忽略重复派发失败',
+    run_attempt_reset: '已重置运行尝试',
+    error: '执行异常',
+  };
+  return labels[event.event_type] || event.event_type;
+}
+
+function eventDetail(event: AgentRunEvent, run: AgentRun | null): string {
+  const payload = event.payload;
+  const agentKey = stringValue(payload.agent_key);
+  if (event.event_type === 'agent_specialist_result_saved' && agentKey) {
+    return `${executionName(run, 'agents', agentKey)} · 专业任务已验收`;
+  }
+  const toolKey = stringValue(payload.tool_key);
+  if (event.event_type.startsWith('agent_action_') && toolKey) {
+    return executionName(run, 'tools', toolKey);
+  }
+  for (const key of ['message', 'reason', 'node_key', 'tool_key']) {
+    const value = payload[key];
+    if (typeof value === 'string' && value.trim()) return value;
+  }
+  return `序号 ${event.sequence}`;
+}
 
 function localizedGeneratedCases(cases: Record<string, unknown>[]): Record<string, unknown> {
   return {
@@ -133,20 +195,19 @@ function formatDurationSeconds(totalSeconds: number): string {
     .join(':');
 }
 
-function nodeTiming(run: AgentRun | null, nodeRun: AgentNodeRun, nowMs: number) {
+function nodeTiming(nodeRun: AgentNodeRun, nowMs: number) {
   const restore = objectValue(nodeRun.sdk_state.checkpoint_restore);
   const resultCache = objectValue(nodeRun.sdk_state.result_cache);
   const sourceDurationValue = restore.source_duration_seconds ?? resultCache.source_duration_seconds;
   const sourceDurationSeconds = typeof sourceDurationValue === 'number'
     ? sourceDurationValue
     : Number.NaN;
-  const duration = formatDuration(nodeRun.started_at, nodeRun.finished_at, nowMs);
+  const waitSeconds = Number(nodeRun.sdk_state.confirmation_wait_seconds || 0);
+  const duration = formatDuration(nodeRun.started_at, nodeRun.finished_at
+    ? new Date(new Date(nodeRun.finished_at).getTime() - waitSeconds * 1000).toISOString()
+    : null, nowMs - (nodeRun.finished_at ? 0 : waitSeconds * 1000));
   const cacheHit = resultCache.hit === true;
-  const checkpointRestored = Boolean(restore.source_node_run_id) || Boolean(
-    run?.parent_run_id
-    && nodeRun.status === 'success'
-    && duration === '00:00:00',
-  );
+  const checkpointRestored = Boolean(restore.source_node_run_id);
   const reused = cacheHit || checkpointRestored;
   return {
     duration,
@@ -158,25 +219,13 @@ function nodeTiming(run: AgentRun | null, nodeRun: AgentNodeRun, nowMs: number) 
   };
 }
 
-function actualModelDisplay(
-  nodeRun: AgentNodeRun,
-  agent: AgentDefinition | undefined,
-) {
-  const model = objectValue(nodeRun.sdk_state.model);
-  const configuredModel = stringValue(agent?.model);
-  return {
-    name: stringValue(model.name) || configuredModel || '本次生成未记录',
-    source: stringValue(model.source) || (configuredModel ? 'Agent 固定配置' : '等待运行时记录'),
-  };
-}
-
-function agentRole(nodeRun: AgentNodeRun, agent: AgentDefinition | undefined): string {
+function agentRole(nodeRun: AgentNodeRun, agent: ExecutionAgent | undefined): string {
   const subagentKeys = agent?.runtime_config.subagent_keys;
   if (nodeRun.node_type === 'agent_map' && Array.isArray(subagentKeys) && subagentKeys.length > 0) {
     return '动态子网络 · 分配任务执行';
   }
   if (nodeRun.node_type === 'agent_map') return '子智能体 · 分配任务执行';
-  if (nodeRun.node_type === 'agent_network') return '主智能体 · 动态协作';
+  if (nodeRun.node_type === 'agent_network') return '主 Agent · 按状态自主决策';
   if (agent?.agent_key.includes('review') || agent?.agent_key.includes('auditor')) return '专项复核智能体';
   return '协作智能体';
 }
@@ -200,38 +249,6 @@ function stageStatus(run: AgentRun | null, nodeKeys: readonly string[]): Busines
   if (nodes.some((node) => node.status === 'success')) return 'running';
   if (nodes.some((node) => node.status === 'cancelled')) return 'cancelled';
   return 'waiting';
-}
-
-function mapProgress(nodeRun: AgentNodeRun): string | null {
-  const checkpoint = objectValue(nodeRun.sdk_state.action_checkpoint);
-  const state = objectValue(checkpoint.state);
-  if (nodeRun.node_type === 'agent_network' && Object.keys(state).length > 0) {
-    const records = Array.isArray(state.generation_records) ? state.generation_records : [];
-    const candidates = records.reduce((count, value) => {
-      const cases = objectValue(objectValue(value).output).test_cases;
-      return count + (Array.isArray(cases) ? cases.length : 0);
-    }, 0);
-    const budget = objectValue(checkpoint.budget);
-    const charged = objectValue(budget.charged);
-    const limits = objectValue(budget.limits);
-    const receipts = Object.values(objectValue(checkpoint.receipts)).map(objectValue);
-    const active = receipts.find((receipt) => receipt.status === 'started');
-    const calls = Object.values(objectValue(checkpoint.validated_agent_calls)).map(objectValue);
-    const completed = active ? calls.filter((call) => call.parent_tool_call_id === active.tool_call_id).length : 0;
-    const parts = [`节点第 ${nodeRun.attempt} 次尝试`];
-    if (records.length > 0) {
-      parts.push(`生成 ${records.filter(Boolean).length}/${records.length} 批 · 候选 ${candidates} 条`);
-    }
-    if (active) parts.push(`当前动作已完成 ${completed} 个专业任务`);
-    if (typeof charged.attempted_requests === 'number' && typeof limits.attempted_requests === 'number') {
-      parts.push(`模型请求 ${charged.attempted_requests}/${limits.attempted_requests}`);
-    }
-    return parts.join(' · ');
-  }
-  const completed = Number(nodeRun.output_payload.completed_count ?? 0);
-  const total = Number(nodeRun.output_payload.total_count ?? 0);
-  if (!Number.isFinite(total) || total < 1) return null;
-  return `已完成 ${Math.max(0, completed)} / ${total} 个分配任务`;
 }
 
 function mapParallelism(nodeRun: AgentNodeRun, configuredConcurrency = 1) {
@@ -260,17 +277,13 @@ function activatedAgentRuns(run: AgentRun | null) {
   for (const nodeRun of run?.nodes ?? []) {
     if (!['agent', 'agent_network', 'agent_map'].includes(nodeRun.node_type)) continue;
     const current = latestByNode.get(nodeRun.node_key);
-    if (!current || nodeRun.attempt >= current.attempt) {
+    if (!current || nodeRun.attempt > current.attempt || (
+      nodeRun.attempt === current.attempt && nodeRun.id > current.id
+    )) {
       latestByNode.set(nodeRun.node_key, nodeRun);
     }
   }
   return Array.from(latestByNode.values());
-}
-
-function configuredWorkflowNodes(workflow: AgentWorkflow | null): WorkflowNode[] {
-  return workflow?.definition.execution_mode === 'dag'
-    ? workflow.definition.nodes
-    : [];
 }
 
 export function AgentWorkspace({ projectId, onLog }: Props) {
@@ -278,6 +291,9 @@ export function AgentWorkspace({ projectId, onLog }: Props) {
   const [selectedStageKey, setSelectedStageKey] = useState<string | null>(null);
   const [selectedNodeKey, setSelectedNodeKey] = useState<string | null>(null);
   const [clockMs, setClockMs] = useState(() => Date.now());
+  const [openConflictApprovalId, setOpenConflictApprovalId] = useState<number | null>(null);
+  const conflictApproval = controller.activeRun?.approvals.find((item) =>
+    item.status === 'pending' && item.request_payload.kind === 'source_conflicts');
 
   const selectedDocument = controller.requirementDocuments.find(
     (document) => document.id === controller.requirementDocId,
@@ -288,7 +304,7 @@ export function AgentWorkspace({ projectId, onLog }: Props) {
     [controller.activeRun],
   );
   const runBusy = Boolean(
-    controller.activeRun && ['pending', 'running'].includes(controller.activeRun.status),
+    controller.activeRun && ['pending', 'running', 'waiting_approval'].includes(controller.activeRun.status),
   );
   const resetAttemptDisabled = Boolean(
     !controller.activeRun
@@ -303,7 +319,7 @@ export function AgentWorkspace({ projectId, onLog }: Props) {
     ? '需求文档正在上传，请等待上传完成'
     : controller.resettingAttempt
       ? '正在重置执行次数，请稍候'
-      : `沿用 Run #${controller.activeRun?.id} 的原需求、${controller.activeRun?.input_payload.case_budget} 条用例数量及压缩设置，恢复已完成任务并继续执行`;
+      : `沿用 Run #${controller.activeRun?.id} 的原需求和 ${controller.activeRun?.input_payload.case_budget} 条用例目标，继续未完成任务`;
   const resetAttemptTitle = !controller.activeRun
     ? '当前没有可重置的运行'
     : ['pending', 'running', 'waiting_approval'].includes(controller.activeRun.status)
@@ -311,23 +327,24 @@ export function AgentWorkspace({ projectId, onLog }: Props) {
       : controller.activeRun.run_attempt === 1
         ? '执行次数已经是 1'
         : '将本次运行的执行次数重置为 1';
+  const confirmationPausedAt = conflictApproval ? String(conflictApproval.request_payload.paused_at) : null;
+  const runEnd = controller.activeRun?.finished_at || (confirmationPausedAt
+    ? `${confirmationPausedAt}${/Z$|[+-]\d\d:\d\d$/.test(confirmationPausedAt) ? '' : 'Z'}` : null);
+  const waitMs = Number(controller.activeRun?.run_context.confirmation_wait_seconds || 0) * 1000;
   const runDuration = controller.activeRun
     ? formatDuration(
       controller.activeRun.started_at,
-      controller.activeRun.finished_at,
-      clockMs,
+      runEnd ? new Date(new Date(runEnd).getTime() - waitMs).toISOString() : null,
+      clockMs - waitMs,
     )
     : '';
   const selectedNodeRun = agentRuns.find((node) => node.node_key === selectedNodeKey);
-  const selectedAgent = selectedNodeRun?.agent_definition_id
-    ? controller.catalog.agents.find(
-      (agent) => agent.id === selectedNodeRun.agent_definition_id,
-    )
-    : undefined;
-  const workflowNodes = configuredWorkflowNodes(controller.selectedWorkflow);
-  const hierarchyStages = controller.selectedWorkflow?.definition.execution_mode === 'dag'
-    ? controller.selectedWorkflow.definition.display_stages
-    : [];
+  const selectedAgent = selectedNodeRun ? executionAgent(controller.activeRun, selectedNodeRun) : undefined;
+  const execution = workspaceExecution(controller.activeRun, controller.selectedWorkflow);
+  const workflowNodes = execution.definition?.execution_mode === 'dag' ? execution.definition.nodes : [];
+  const hierarchyStages = executionDisplayStages(execution.definition);
+  const networkRun = agentRuns.find((node) => node.node_key === 'agent_network' && node.node_type === 'agent_network');
+  const activity = networkRun ? networkActivity(controller.activeRun, networkRun) : null;
   const currentNodeStage = controller.activeRun?.current_node_key
     ? hierarchyStages.find((stage) => stage.node_keys.includes(controller.activeRun?.current_node_key ?? ''))
     : undefined;
@@ -350,7 +367,7 @@ export function AgentWorkspace({ projectId, onLog }: Props) {
     ? actualModelDisplay(selectedNodeRun, selectedAgent)
     : null;
   const selectedNodeTiming = selectedNodeRun && controller.activeRun
-    ? nodeTiming(controller.activeRun, selectedNodeRun, clockMs)
+    ? nodeTiming(selectedNodeRun, clockMs)
     : null;
   const sourceReady = Boolean(selectedDocument && selectedDocument.parse_status === 'success');
   const hierarchyConfigured = hierarchyStages.length > 0;
@@ -361,7 +378,7 @@ export function AgentWorkspace({ projectId, onLog }: Props) {
       ? hierarchyStages.find((stage) => stage.node_keys.includes(currentNodeKey))
       : undefined;
     setSelectedStageKey(currentStage?.stage_key ?? hierarchyStages[0]?.stage_key ?? null);
-  }, [controller.selectedWorkflow?.id, controller.activeRun?.id]);
+  }, [controller.selectedWorkflow?.id, controller.activeRun?.id, execution.definition?.execution_mode]);
 
   useEffect(() => {
     setSelectedNodeKey(null);
@@ -446,15 +463,6 @@ export function AgentWorkspace({ projectId, onLog }: Props) {
                   disabled={controller.submitting || runBusy}
                 />
               </Form.Group>
-              <Form.Check
-                id="agent-context-compression"
-                type="switch"
-                label="启用上下文压缩"
-                checked={controller.enableContextCompression}
-                onChange={(event) => controller.setEnableContextCompression(event.target.checked)}
-                disabled={controller.submitting || runBusy}
-                title="使用平台通用压缩器整理当前需求证据；原始来源锚点仍保留用于校验"
-              />
               <Button
                 className="agent-run-button"
                 onClick={() => void controller.runWorkflow()}
@@ -484,6 +492,7 @@ export function AgentWorkspace({ projectId, onLog }: Props) {
                 </Button>
               )}
             </div>
+            <Form.Text>默认总额度 30 万 token，最长执行 20 分钟，每批最多编写 20 条用例。</Form.Text>
           </article>
 
           <article className="agent-card agent-runtime-card">
@@ -527,15 +536,19 @@ export function AgentWorkspace({ projectId, onLog }: Props) {
             </div>
           </div>
 
+          {execution.error && (
+            <AgentErrorDetails className="agent-run-error" message={`${execution.error}。无法确认本次运行的执行结构，请检查运行契约。`} />
+          )}
+
           {hierarchyConfigured && (
-            <div className="agent-hierarchy" aria-label="Agent 协作流程">
+            <div className="agent-hierarchy" aria-label="本次运行执行结构">
               {hierarchyStages.map((stage, index) => {
                 const stageState = stageStatus(controller.activeRun, stage.node_keys);
                 return (
+                  <div className="agent-stage-container" key={stage.stage_key}>
                   <button
                     type="button"
                     className={`agent-hierarchy-stage is-${stageState}${selectedStage?.stage_key === stage.stage_key ? ' is-selected' : ''}`}
-                    key={stage.stage_key}
                     onClick={() => {
                       setSelectedStageKey(stage.stage_key);
                       setSelectedNodeKey(null);
@@ -552,8 +565,48 @@ export function AgentWorkspace({ projectId, onLog }: Props) {
                       {businessStageLabel[stageState]}
                     </Badge>
                   </button>
+                  {conflictApproval && controller.activeRun?.nodes.some((node) =>
+                    node.id === conflictApproval.node_run_id && stage.node_keys.includes(node.node_key)) && (
+                    <Button className="agent-pending-confirmation" size="sm" variant="warning"
+                      onClick={() => setOpenConflictApprovalId(conflictApproval.id)} aria-haspopup="dialog">确认规则</Button>
+                  )}
+                  </div>
                 );
               })}
+            </div>
+          )}
+
+          {controller.runEvents.length > 0 && (
+            <div className="agent-event-trace" aria-label="执行轨迹">
+              <div className="agent-event-trace-heading">
+                <strong>执行轨迹</strong>
+                <small>已接收 {controller.runEvents.length} 条事件</small>
+              </div>
+              <ol>
+                {controller.runEvents.slice(-8).reverse().map((event) => (
+                  <li key={`${event.run_id}-${event.sequence}`}>
+                    <span className="agent-event-sequence">#{event.sequence}</span>
+                    <span className="agent-event-type">{eventLabel(event)}</span>
+                    <span className="agent-event-detail">{eventDetail(event, controller.activeRun)}</span>
+                  </li>
+                ))}
+              </ol>
+            </div>
+          )}
+
+          {!hierarchyConfigured && conflictApproval && (
+            <div className="agent-pending-confirmation-panel" role="alert">
+              <div>
+                <strong>任务需要人工确认</strong>
+                <span>当前 Agent 已暂停，完成确认后才会继续执行。</span>
+              </div>
+              <Button
+                variant="warning"
+                onClick={() => setOpenConflictApprovalId(conflictApproval.id)}
+                aria-haspopup="dialog"
+              >
+                确认规则
+              </Button>
             </div>
           )}
 
@@ -578,11 +631,7 @@ export function AgentWorkspace({ projectId, onLog }: Props) {
                   aria-label={selectedStage ? `${selectedStage.label}阶段的智能体` : '本次运行的智能体'}
                 >
             {visibleAgentRuns.map((nodeRun, index) => {
-              const agent = nodeRun.agent_definition_id
-                ? controller.catalog.agents.find(
-                  (item) => item.id === nodeRun.agent_definition_id,
-                )
-                : undefined;
+              const agent = executionAgent(controller.activeRun, nodeRun);
               const workflowNode = workflowNodes.find(
                 (item) => item.node_key === nodeRun.node_key,
               );
@@ -594,7 +643,7 @@ export function AgentWorkspace({ projectId, onLog }: Props) {
               const executionMode = nodeRun.node_type === 'agent_map' && parallelism.maxConcurrency > 1
                 ? `${isDynamicMap ? '动态子网络 · ' : ''}并发 ${parallelism.maxConcurrency} 个独立实例`
                 : agentRole(nodeRun, agent);
-              const timing = nodeTiming(controller.activeRun, nodeRun, clockMs);
+              const timing = nodeTiming(nodeRun, clockMs);
               return (
                 <button
                   type="button"
@@ -618,7 +667,7 @@ export function AgentWorkspace({ projectId, onLog }: Props) {
                         </small>
                       )}
                     </span>
-                    <small>{executionMode}{mapProgress(nodeRun) ? ` · ${mapProgress(nodeRun)}` : ''}</small>
+                    <small>{executionMode}{nodeProgress(nodeRun) ? ` · ${nodeProgress(nodeRun)}` : ''}</small>
                   </span>
                   <Badge bg={statusVariant[nodeRun.status]}>{statusLabel[nodeRun.status]}</Badge>
                 </button>
@@ -632,7 +681,33 @@ export function AgentWorkspace({ projectId, onLog }: Props) {
                 </div>
               )}
 
-              {(controller.activeRun.approvals ?? []).filter((item) => item.status === 'pending').map((approval) => (
+              {activity && (activity.action || activity.children.length > 0) && (
+                <section className="agent-instance-section" aria-label="主 Agent 工具与专业任务">
+                  {activity.action && (
+                    <div className="agent-instance-heading">
+                      <strong>{activity.action.status === 'started' ? '当前工具' : '最近工具'}：{activity.action.name}</strong>
+                      <span>
+                        {activity.action.status === 'completed' ? '已完成' : activity.action.status === 'failed' ? '失败' : '执行中'}
+                        {activity.action.completedChildCount !== null && activity.action.completedChildCount > 0 ? ` · 已验收 ${activity.action.completedChildCount} 个专业任务` : ''}
+                      </span>
+                    </div>
+                  )}
+                  {activity.children.length > 0 && (
+                    <>
+                      <div className="agent-instance-heading"><strong>专业任务执行回执</strong><span>按本次运行已保存并校验的结果统计</span></div>
+                      <div className="agent-instance-grid">
+                        {activity.children.map((child) => (
+                          <div className="agent-instance-card" key={child.key}>
+                            <strong>{child.name}</strong><span>已验收 {child.count} 个任务</span>
+                          </div>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                </section>
+              )}
+
+              {(controller.activeRun.approvals ?? []).filter((item) => item.status === 'pending' && item.request_payload.kind !== 'source_conflicts').map((approval) => (
                 <div className="agent-approval agent-current-approval" key={approval.id}>
                   <strong>审批 #{approval.id}</strong>
                   <JsonView value={approval.request_payload} />
@@ -652,7 +727,7 @@ export function AgentWorkspace({ projectId, onLog }: Props) {
               <FaRobot />
               <strong>{controller.activeRun ? 'Agent 尚未激活' : '尚未启动生成'}</strong>
               <span>{controller.activeRun
-                ? '本次生成正在执行确定性准备工作；只有实际调用 Agent 后才会出现在这里。'
+                ? `本次运行${statusLabel[controller.activeRun.status]}，尚未记录已激活的 Agent。`
                 : '上传需求并点击“开始生成”后，这里会按实际激活顺序展示 Agent。'}</span>
             </div>
           )}
@@ -703,11 +778,15 @@ export function AgentWorkspace({ projectId, onLog }: Props) {
         role={selectedNodeRun ? agentRole(selectedNodeRun, selectedAgent) : ''}
         model={selectedModel}
         timing={selectedNodeTiming}
-        progress={selectedNodeRun ? mapProgress(selectedNodeRun) : null}
+        progress={selectedNodeRun ? nodeProgress(selectedNodeRun) : null}
         statusLabel={selectedNodeRun ? businessStageLabel[selectedNodeRun.status] : ''}
         parallelism={selectedParallelism}
       />
 
+      {conflictApproval && <AgentConflictModal key={conflictApproval.id} approval={conflictApproval}
+        show={openConflictApprovalId === conflictApproval.id} onHide={() => setOpenConflictApprovalId(null)}
+        submitError={controller.error}
+        onComplete={(answers) => controller.decideApproval(conflictApproval.id, true, answers)} />}
       <Modal
         show={controller.showReusePrompt}
         onHide={controller.dismissReusePrompt}

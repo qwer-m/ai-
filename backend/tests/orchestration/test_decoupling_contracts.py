@@ -178,7 +178,9 @@ def test_in_request_threadpool_usage_is_explicitly_reviewed() -> None:
 
 
 def test_fastapi_run_in_threadpool_is_only_request_scoped_offload() -> None:
-    allowed: set[tuple[str, str]] = set()
+    allowed: set[tuple[str, str]] = {
+        ("routers/system/config_routes_runtime.py", "_validate_model_config"),
+    }
 
     def _call_name(node: ast.AST) -> str:
         if isinstance(node, ast.Name):

@@ -3,12 +3,14 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any
 
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, load_only
 
 from core.db.model_defs import (
     AgentDefinition,
     AgentToolBinding,
     AgentToolDefinition,
+    AgentNodeRun,
+    AgentRun,
     AgentWorkflowDefinition,
 )
 
@@ -387,11 +389,33 @@ class AgentDefinitionRepository:
             )
             .all()
         )
-        row = None
-        for existing in existing_versions:
-            existing.enabled = int(existing.version or 1) == target_version
-            if existing.enabled:
-                row = existing
+        row = next(
+            (existing for existing in existing_versions if self._agent_matches_spec(existing, spec)),
+            None,
+        )
+        if row is not None:
+            # 相同内容的发布已经存在；只恢复目标版本的启用状态，避免每次
+            # 启动都生成新的版本记录。
+            for existing in existing_versions:
+                existing.enabled = existing.id == row.id
+            row.enabled = True
+            self.db.add(row)
+            return
+        row = next(
+            (
+                existing for existing in existing_versions
+                if int(existing.version or 1) == target_version
+            ),
+            None,
+        )
+        if row is not None and self._agent_is_referenced(row):
+            # 已被历史节点引用的版本不可原地修改。使用递增版本保留旧
+            # definition，运行级契约快照会继续绑定创建时的版本内容。
+            target_version = max(
+                target_version,
+                max((int(item.version or 0) for item in existing_versions), default=0) + 1,
+            )
+            row = None
         if row is None:
             row = AgentDefinition(
                 project_id=None,
@@ -400,7 +424,8 @@ class AgentDefinitionRepository:
                 version=target_version,
                 builtin=True,
             )
-        # 同版本仍同步代码定义，确保运行时不继续使用旧配置。
+        for existing in existing_versions:
+            existing.enabled = False
         row.name = spec["name"]
         row.description = spec["description"]
         row.instructions = spec["instructions"]
@@ -409,6 +434,36 @@ class AgentDefinitionRepository:
         row.runtime_config = deepcopy(spec["runtime_config"])
         row.enabled = True
         self.db.add(row)
+
+    def _agent_is_referenced(self, row: AgentDefinition) -> bool:
+        if self.db.query(AgentNodeRun.id).filter(
+            AgentNodeRun.agent_definition_id == row.id,
+        ).first() is not None:
+            return True
+        # pending/running/waiting_approval 运行可能还没有节点行，但已经把
+        # Agent 写进执行契约；seed 不能在这段窗口原地改写定义。
+        active_runs = self.db.query(AgentRun).options(
+            load_only(AgentRun.id, AgentRun.run_context),
+        ).filter(
+            AgentRun.status.in_(("pending", "running", "waiting_approval")),
+        ).all()
+        for run in active_runs:
+            contract = (getattr(run, "run_context", {}) or {}).get("execution_contract")
+            for snapshot in (contract or {}).get("agents", []) if isinstance(contract, dict) else []:
+                if isinstance(snapshot, dict) and int(snapshot.get("id") or 0) == int(row.id):
+                    return True
+        return False
+
+    @staticmethod
+    def _agent_matches_spec(row: AgentDefinition, spec: dict[str, Any]) -> bool:
+        return (
+            str(row.name or "") == str(spec["name"] or "")
+            and str(row.description or "") == str(spec["description"] or "")
+            and str(row.instructions or "") == str(spec["instructions"] or "")
+            and str(row.model or "") == str(spec["model"] or "")
+            and (row.output_schema or {}) == (spec.get("output_schema") or {})
+            and (row.runtime_config or {}) == (spec.get("runtime_config") or {})
+        )
 
     def disable_obsolete_workflows(self, *, project_id: int, active_keys: set[str]) -> None:
         for workflow in (
@@ -441,11 +496,32 @@ class AgentDefinitionRepository:
             )
             .all()
         )
-        row = None
-        for existing in existing_versions:
-            existing.enabled = int(existing.version or 1) == target_version
-            if existing.enabled:
-                row = existing
+        row = next(
+            (
+                existing for existing in existing_versions
+                if self._workflow_matches_definition(existing, spec, definition)
+            ),
+            None,
+        )
+        if row is not None:
+            for existing in existing_versions:
+                existing.enabled = existing.id == row.id
+            row.enabled = True
+            self.db.add(row)
+            return
+        row = next(
+            (
+                existing for existing in existing_versions
+                if int(existing.version or 1) == target_version
+            ),
+            None,
+        )
+        if row is not None and self._workflow_is_referenced(row):
+            target_version = max(
+                target_version,
+                max((int(item.version or 0) for item in existing_versions), default=0) + 1,
+            )
+            row = None
         if row is None:
             row = AgentWorkflowDefinition(
                 project_id=project_id,
@@ -454,8 +530,27 @@ class AgentDefinitionRepository:
                 version=target_version,
                 builtin=True,
             )
+        for existing in existing_versions:
+            existing.enabled = False
         row.name = spec["name"]
         row.description = spec["description"]
         row.definition = deepcopy(definition)
         row.enabled = True
         self.db.add(row)
+
+    def _workflow_is_referenced(self, row: AgentWorkflowDefinition) -> bool:
+        return self.db.query(AgentRun.id).filter(
+            AgentRun.workflow_definition_id == row.id,
+        ).first() is not None
+
+    @staticmethod
+    def _workflow_matches_definition(
+        row: AgentWorkflowDefinition,
+        spec: dict[str, Any],
+        definition: dict[str, Any],
+    ) -> bool:
+        return (
+            str(row.name or "") == str(spec["name"] or "")
+            and str(row.description or "") == str(spec["description"] or "")
+            and (row.definition or {}) == (definition or {})
+        )
