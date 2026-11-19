@@ -1,0 +1,13 @@
+--- a/backend/modules/agent_platform/generation_review_contract.py
++++ b/backend/modules/agent_platform/generation_review_contract.py
+@@ -77,8 +77,8 @@
+                 _error("来源分支处置无效", evidence_id=evidence_id)
+             witnesses = _ids(branch["case_ids"], "分支用例见证", case_ids, required=disposition == "covered")
+             related = _ids(branch["related_evidence_ids"], "相关约束来源", eligible)
+-            if disposition == "superseded" and (not related or evidence_id in related):
+-                _error("被替代的来源分支必须引用实际后续规则或批准", evidence_id=evidence_id)
++            # 当前行已绑定本来源；related只保留额外来源，不假设同源内部不能发生替代。
++            related = [identity for identity in related if identity != evidence_id]
+             item = {"rule": rule, "case_ids": witnesses, "disposition": disposition, "related_evidence_ids": related}
+             identity = json.dumps(item, ensure_ascii=False, sort_keys=True)
+             if identity in identities:

@@ -1,0 +1,157 @@
+--- a/backend/modules/agent_platform/test_generation_agent.py
++++ b/backend/modules/agent_platform/test_generation_agent.py
+@@ -188,13 +188,14 @@
+     return review.compose_review_context(context, input_payload=state["review"]["input"], state=state["review"]["state"])
+ 
+ 
+-def _problem(state, *, origin, input_hash, payload, fact_ids, batch_indexes, review_provenance=None):
++def _problem(state, *, origin, input_hash, payload, fact_ids, batch_indexes, review_provenance=None, generation_provenance=None):
+     identity = action_state_hash([origin, input_hash, payload])
+     state["problems"].setdefault(identity, {
+         "problem_id": identity, "origin": origin, "input_hash": input_hash,
+         "fact_ids": sorted(set(fact_ids)), "generation_indexes": sorted(set(batch_indexes)),
+         "payload": deepcopy(payload),
+         **({"review_provenance": deepcopy(review_provenance)} if review_provenance is not None else {}),
++        **({"generation_provenance": deepcopy(generation_provenance)} if generation_provenance is not None else {}),
+     })
+ 
+ 
+@@ -229,15 +230,123 @@
+                               "layout": state["generation_layout"]})
+ 
+ 
++
++def _generation_feedback_source_hash(state):
++    """反馈只对同一已治理来源生效；规划和生成位置不构成来源身份。"""
++    if state["planning"] is None or state["effective_facts"] is None:
++        return None
++    return action_state_hash({
++        "source_ref": state["planning"]["goal"]["source_ref"],
++        "source_semantics": state["planning"]["source_semantics"],
++        "source_authority": state["planning"]["source_authority"],
++        "effective_facts": state["effective_facts"],
++        "confirmations": state["conflict_confirmations"],
++    })
++
++
++def _generation_feedback_draft_targets(state):
++    """沿真实草案绑定完整原子意图；位置仅供当前执行，不参与稳定身份。"""
++    catalog = {}
++    for index, (item, record) in enumerate(zip(
++            state["planning"]["planning_inputs"], state["planning"]["planning_records"], strict=True)):
++        if record is None:
++            continue
++        input_hash = action_state_hash(item)
++        if record["input_hash"] != input_hash:
++            raise ValueError("生成反馈的草案来源与当前完整输入不一致")
++        for candidate_index, candidate in enumerate(record["output"]["module_candidates"]):
++            for topic_index, topic in enumerate(candidate["coverage_topics"]):
++                intent = planning.coverage_topic_intent(topic)
++                identity = {
++                    "planning_input_hash": input_hash,
++                    "module_candidate_name": candidate["name"],
++                    "candidate_fact_ids": sorted(candidate["fact_ids"]),
++                    "actors": deepcopy(candidate["actors"]),
++                    "lifecycle": deepcopy(candidate["lifecycle"]),
++                    "coverage_intent": intent,
++                }
++                target = {"identity": identity,
++                          "planning_batch_index": index,
++                          "module_candidate_index": candidate_index,
++                          "coverage_topic_index": topic_index}
++                owners = catalog.setdefault(intent, {})
++                # 汇总器对同一候选内的同文原子意图保留首次主题，复用相同归属。
++                owners.setdefault(action_state_hash(identity), target)
++    return {intent: list(owners.values()) for intent, owners in catalog.items()}
++
++
++def _record_generation_feedback(state, item, normalized, generation_index):
++    """按报告内的原子issue登记，不以整批问题的共同存亡代替局部修复。"""
++    designs = {design["test_design_item_id"]: design for design in item["plan"]["test_design_items"]}
++    targets = _generation_feedback_draft_targets(state)
++    source_hash = _generation_feedback_source_hash(state)
++    for issue in normalized["planning_feedback"]["issues"]:
++        payload = deepcopy(normalized)
++        payload["planning_feedback"]["issues"] = [deepcopy(issue)]
++        fact_ids = sorted({identity for group in issue["scenario_groups"] for identity in group["fact_ids"]})
++        provenance = None
++        if issue["requested_change"] == "replan":
++            intents = sorted({designs[identity]["coverage_intent"]
++                              for group in issue["scenario_groups"] for identity in group["test_design_item_ids"]})
++            if source_hash is None or any(len(targets.get(intent, [])) != 1 for intent in intents):
++                raise ValueError("生成范围问题缺少唯一的当前来源及原子草案归属")
++            provenance = {
++                "source_hash": source_hash,
++                "draft_targets": [deepcopy(targets[intent][0]["identity"]) for intent in intents],
++            }
++        _problem(state, origin="generation", input_hash=action_state_hash(item), payload=payload,
++                 fact_ids=fact_ids, batch_indexes=[generation_index], generation_provenance=provenance)
++
++
++def _project_generation_feedback(state, problem, targets, source_hash):
++    """目标改变只使旧结论退役；保留的报告仍是待评估主张，不构成业务裁决。"""
++    provenance = problem["generation_provenance"]
++    if provenance["source_hash"] != source_hash:
++        return None
++    current_targets = []
++    for previous in provenance["draft_targets"]:
++        current = targets.get(previous["coverage_intent"], [])
++        if len(current) != 1 or current[0]["identity"] != previous:
++            return None
++        current_targets.append(deepcopy(current[0]))
++    intents = {target["coverage_intent"] for target in provenance["draft_targets"]}
++    matched, accepted = [], set()
++    for index, (item, record) in enumerate(zip(state["generation_inputs"], state["generation_records"], strict=True)):
++        covered = {design["coverage_intent"] for design in item["plan"]["test_design_items"]} & intents
++        if not covered:
++            continue
++        matched.append(index)
++        if record is not None:
++            if record["input_hash"] != action_state_hash(item):
++                raise ValueError("生成反馈的候选验收记录与当前完整输入不一致")
++            accepted.update(covered)
++    if intents <= accepted:
++        return None
++    result = deepcopy(problem)
++    result["generation_indexes"] = matched
++    result["current_draft_origins"] = current_targets
++    return result
++
++
+ def _project_current_problems(state):
+     """领域状态只保存当前问题；历史结论由已有行动回执保留，不能因无关修复重复登记。"""
+     generation_hashes = {action_state_hash(item) for index, item in enumerate(state["generation_inputs"])
+                          if state["generation_records"][index] is None}
+-    state["problems"] = {key: value for key, value in state["problems"].items()
+-                         if (value["origin"] == "generation" and value["input_hash"] in generation_hashes)
+-                         or (value["origin"] == "preparation" and state["accepted_plan"] is not None
+-                             and state["effective_facts"] is not None and not state["generation_inputs"]
+-                             and value["input_hash"] == _preparation_identity(state))}
++    retained = {}
++    feedback = [value for value in state["problems"].values() if "generation_provenance" in value]
++    targets = _generation_feedback_draft_targets(state) if feedback else {}
++    source_hash = _generation_feedback_source_hash(state) if feedback else None
++    for key, value in state["problems"].items():
++        if "generation_provenance" in value:
++            projected = _project_generation_feedback(state, value, targets, source_hash)
++            if projected is not None:
++                retained[key] = projected
++        elif ((value["origin"] == "generation" and value["input_hash"] in generation_hashes)
++              or (value["origin"] == "preparation" and state["accepted_plan"] is not None
++                  and state["effective_facts"] is not None and not state["generation_inputs"]
++                  and value["input_hash"] == _preparation_identity(state))):
++            retained[key] = value
++    state["problems"] = retained
+     if state["review"] is None:
+         return
+     source, current = state["review"]["input"], state["review"]["state"]
+@@ -982,8 +1091,7 @@
+                      fact_ids=[fact["fact_id"] for fact in item["authoritative_facts"]], batch_indexes=[index])
+         elif output.get("result_type") == "planning_feedback":
+             normalized = validate_generation_scope_feedback(item, output)
+-            _problem(state, origin="generation", input_hash=action_state_hash(item), payload=normalized,
+-                     fact_ids=[fact["fact_id"] for fact in item["authoritative_facts"]], batch_indexes=[index])
++            _record_generation_feedback(state, item, normalized, index)
+         else:
+             # SDK 已使用同一完整后处理器验收；保留其标准化产物，不能把问题报告加入成功缓存。
+             normalized = _validate_generation_batch_output(source_input=item, output=output)

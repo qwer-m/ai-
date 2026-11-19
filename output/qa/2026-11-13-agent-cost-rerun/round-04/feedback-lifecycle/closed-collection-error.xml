@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="1" failures="0" skipped="0" tests="1" time="7.212" timestamp="2026-11-13T16:34:10.214337+08:00" hostname="DESKTOP-F86RMFU"><testcase classname="" name="output.qa.2026-11-13-agent-cost-rerun.round-04.feedback-lifecycle.test_closed_feedback_real" time="0.000"><error message="collection failure">ImportError while importing test module 'D:\Qoder\测试开发平台\output\qa\2026-11-13-agent-cost-rerun\round-04\feedback-lifecycle\test_closed_feedback_real.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+C:\Program Files\Python311\Lib\importlib\__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+output\qa\2026-11-13-agent-cost-rerun\round-04\feedback-lifecycle\test_closed_feedback_real.py:37: in &lt;module&gt;
+    from modules.agent_platform.sdk_adapter import model_input_projection
+E   ImportError: cannot import name 'model_input_projection' from 'modules.agent_platform.sdk_adapter' (D:\Qoder\测试开发平台\backend\modules\agent_platform\sdk_adapter.py)</error></testcase></testsuite></testsuites>

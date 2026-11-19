@@ -1,0 +1,47 @@
+--- a/backend/modules/agent_platform/test_generation_agent.py
++++ b/backend/modules/agent_platform/test_generation_agent.py
+@@ -857,6 +857,25 @@
+         _initialize_review(context, state)
+ 
+ 
++def _generation_request(item, guidance):
++    """按真实事实目录的明确列表顺序构建请求，不使用映射的恢复迭代顺序。"""
++    request = deepcopy(item)
++    contract = request["case_fact_contract"]
++    available_fact_ids = contract["available_fact_ids"]
++    routes = contract["fact_design_item_ids"]
++    if (available_fact_ids != [fact["fact_id"] for fact in request["authoritative_facts"]]
++            or set(routes) != set(available_fact_ids)):
++        raise ValueError("生成请求事实路由与当前批次事实目录不一致")
++    contract["design_support_requirements"] = [
++        {"test_design_item_id": design_id,
++         "support_fact_ids": [fact_id for fact_id in available_fact_ids if design_id in routes[fact_id]]}
++        for design_id in contract["required_test_design_item_ids"]
++    ]
++    if guidance:
++        request["_planning_feedback"] = {"instruction": guidance, "source": "协调者建议，不是新增事实或预算"}
++    return request
++
++
+ def prepare_generation_action(context, arguments):
+     snapshot = _state_snapshot(context)
+     state = snapshot[0]
+@@ -867,17 +886,7 @@
+     action["guidance"] = guidance
+     action["requests"] = []
+     for item in action["items"]:
+-        request = deepcopy(item)
+-        # 按完整验收契约派生模型可直接核对的联合支持清单，不改变事实、布局或验收身份。
+-        contract = request["case_fact_contract"]
+-        contract["design_support_requirements"] = [
+-            {"test_design_item_id": design_id,
+-             "support_fact_ids": [fact_id for fact_id, ids in contract["fact_design_item_ids"].items()
+-                                  if design_id in ids]}
+-            for design_id in contract["required_test_design_item_ids"]
+-        ]
+-        if guidance:
+-            request["_planning_feedback"] = {"instruction": guidance, "source": "协调者建议，不是新增事实或预算"}
++        request = _generation_request(item, guidance)
+         request_hash = action_state_hash(request)
+         if request_hash in state["generation_requests"]:
+             raise OutputValidationError("该生成请求已有处理记录，需根据实际问题调整规划/布局或提供新的具体修正建议")

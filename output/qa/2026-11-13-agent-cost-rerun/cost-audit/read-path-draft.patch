@@ -1,0 +1,63 @@
+--- backend\modules\agent_platform\test_generation_source_agent.py
++++ backend\modules\agent_platform\test_generation_source_agent.py
+@@ -53,14 +53,20 @@
+         assert_same_source(snapshot, SourceSnapshot.from_dict(source["source_ref"]))
+ 
+ 
+-def hydrate_source_context(context, source: dict[str, Any] | None = None):
+-    """只给隔离上下文注入日志中已验收的来源产物，不修改父上下文产物。"""
++def source_context_view(context, source: dict[str, Any] | None = None):
++    """只读来源视图保留完整验证；调用方不能修改共享的原文和领域状态。"""
+     current = source if source is not None else context.action_state.get("source")
+-    artifacts = deepcopy(context.artifacts)
++    artifacts = dict(context.artifacts)
+     if current is not None:
+         _validate(current)
+-        artifacts.update(deepcopy(current["artifacts"]))
++        artifacts.update(current["artifacts"])
+     return replace(context, artifacts=artifacts, executed_tools=[], tool_calls=[])
++
++
++def hydrate_source_context(context, source: dict[str, Any] | None = None):
++    """修改领域动作使用独立副本；合并完实际来源后只复制一次。"""
++    view = source_context_view(context, source)
++    return replace(view, artifacts=deepcopy(view.artifacts))
+ 
+ 
+ def initialize_source(context, arguments: dict[str, Any]) -> dict[str, Any]:
+--- backend\modules\agent_platform\test_generation_agent.py
++++ backend\modules\agent_platform\test_generation_agent.py
+@@ -33,7 +33,7 @@
+     from .test_generation_source_agent import hydrate_source_context
+ 
+     source_context = hydrate_source_context(context)
+-    return replace(source_context, artifacts=deepcopy(source_context.artifacts), executed_tools=[], tool_calls=[],
++    return replace(source_context, executed_tools=[], tool_calls=[],
+                    action_journal=None, action_state=deepcopy(state or {}),
+                    action_input=deepcopy(context.action_input if input_payload is None else input_payload))
+ 
+@@ -57,6 +57,15 @@
+ 
+ def _planning_context(context, state):
+     return _isolated(context, state=state["planning"], input_payload=state["prepared_input"])
++
++
++def _planning_observation_context(context, state):
++    """观察沿共享只读视图验证；修改行动仍使用 _planning_context 的独立副本。"""
++    from .test_generation_source_agent import source_context_view
++
++    view = source_context_view(context)
++    return replace(view, action_journal=None, action_state=state["planning"],
++                   action_input=state["prepared_input"])
+ 
+ 
+ def _state_snapshot(context):
+@@ -66,7 +75,7 @@
+     if state.get("input_sha256") != action_state_hash(context.action_input) or state.get("domain_sha256") != _digest(state):
+         raise ValueError("统一生成状态与完整输入或内容摘要不一致")
+     # 每次恢复均沿规划领域校验持久来源，而非相信模型携带的来源声明。
+-    plan = planning.observe_planning_state(_planning_context(context, state)) if state["planning"] is not None else None
++    plan = planning.observe_planning_state(_planning_observation_context(context, state)) if state["planning"] is not None else None
+     return state, plan
+ 
+ 

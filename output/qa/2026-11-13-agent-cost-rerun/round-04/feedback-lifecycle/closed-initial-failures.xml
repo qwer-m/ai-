@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="2" skipped="0" tests="10" time="15.806" timestamp="2026-11-13T16:35:12.920303+08:00" hostname="DESKTOP-F86RMFU"><testcase classname="output.qa.2026-11-13-agent-cost-rerun.round-04.feedback-lifecycle.test_closed_feedback_real" name="test_real_atomic_feedback_preserves_only_unchanged_issue_across_invalidations" time="2.434" /><testcase classname="output.qa.2026-11-13-agent-cost-rerun.round-04.feedback-lifecycle.test_closed_feedback_real" name="test_source_and_original_atomic_design_mapping_match_existing_formal_origins" time="0.741" /><testcase classname="output.qa.2026-11-13-agent-cost-rerun.round-04.feedback-lifecycle.test_closed_feedback_real" name="test_old_supported_review_without_issue_context_cannot_retire_problem" time="0.793" /><testcase classname="output.qa.2026-11-13-agent-cost-rerun.round-04.feedback-lifecycle.test_closed_feedback_real" name="test_replan_is_available_for_current_directed_review_with_complete_issue_context" time="0.721"><failure message="ValueError: 支持复核回执与完整输入不一致">real = {'provenance': {'run_id': 63, 'source': '真实MySQL不可变行动状态叶子', 'model_requests_sent': 0, 'business_database_writes': 0, ....a14105e4050a5aae56a5931b13f749480eb95b99d3964019f', 'origin': 'generation', ...}, 'original_generation_index': 19, ...}
+
+    def test_replan_is_available_for_current_directed_review_with_complete_issue_context(real):
+        state = state_for(real)
+        problems = record(real, state)
+        scope = generation._support_review_scope(state, derived_current_review_selection(state))
+        selected = {(entry["module_index"], index) for entry in scope["unresolved_design_selections"]
+                    for index in entry["test_design_item_indexes"]}
+        expected = {(entry["module_index"], design["test_design_item_index"])
+                    for entry in state["planning"]["gap_inputs"] for design in entry["missing_test_design_items"]
+                    if any(design["coverage_intent"] == target["coverage_intent"] for problem in problems.values()
+                           for target in problem["generation_provenance"]["draft_targets"])}
+        assert selected == expected and len(selected) == 4
+        assert set(scope["problem_ids"]) == set(problems)
+&gt;       review = cpu_review_candidate_from_real_supported_output(real, state, auto_problem(problems))
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+output\qa\2026-11-13-agent-cost-rerun\round-04\feedback-lifecycle\test_closed_feedback_real.py:178: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+output\qa\2026-11-13-agent-cost-rerun\round-04\feedback-lifecycle\test_closed_feedback_real.py:109: in cpu_review_candidate_from_real_supported_output
+    previous = planning.current_planning_support_decisions(ctx, {
+output\qa\2026-11-13-agent-cost-rerun\round-04\feedback-lifecycle\closed-tree\backend\modules\agent_platform\test_generation_planning.py:1616: in current_planning_support_decisions
+    accept(item, record)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+item = {'module_index': 0, 'module_name': '学习会话与环节管理', 'module_objective': '验证产品进入、学习路径和续学、环节自由访问、进度打印及环节与课程完成状态。', 'user_decision_context': {}, ...}
+record = {'input_hash': 'c74c73a674dfb3556b8ee0be137e8d763dc038311a4f0ba4e27837a2db9180f0', 'item_index': 0, 'output': {'decisi...0-E442-f2', 'DOC287-P0014-S0-E442-f1'], 'disposition': 'supported', 'support_gaps': [], ...}, ...], 'module_index': 0}}
+
+    def accept(item, record):
+        input_hash = action_state_hash(item)
+        if record.get("input_hash") != input_hash:
+&gt;           raise ValueError("支持复核回执与完整输入不一致")
+E           ValueError: 支持复核回执与完整输入不一致
+
+output\qa\2026-11-13-agent-cost-rerun\round-04\feedback-lifecycle\closed-tree\backend\modules\agent_platform\test_generation_planning.py:1596: ValueError</failure></testcase><testcase classname="output.qa.2026-11-13-agent-cost-rerun.round-04.feedback-lifecycle.test_closed_feedback_real" name="test_same_source_same_issue_new_report_replaces_instead_of_duplicates" time="1.103" /><testcase classname="output.qa.2026-11-13-agent-cost-rerun.round-04.feedback-lifecycle.test_closed_feedback_real" name="test_source_identity_loss_retires_old_claim_without_business_resolution" time="0.615" /><testcase classname="output.qa.2026-11-13-agent-cost-rerun.round-04.feedback-lifecycle.test_closed_feedback_real" name="test_missing_current_protocol_or_draft_identity_is_rejected[generation_provenance]" time="0.787" /><testcase classname="output.qa.2026-11-13-agent-cost-rerun.round-04.feedback-lifecycle.test_closed_feedback_real" name="test_missing_current_protocol_or_draft_identity_is_rejected[reported_design_intents]" time="0.575" /><testcase classname="output.qa.2026-11-13-agent-cost-rerun.round-04.feedback-lifecycle.test_closed_feedback_real" name="test_missing_current_protocol_or_draft_identity_is_rejected[input_hash]" time="0.806" /><testcase classname="output.qa.2026-11-13-agent-cost-rerun.round-04.feedback-lifecycle.test_closed_feedback_real" name="test_current_problem_authorizes_only_its_exact_draft_topics" time="0.607"><failure message="assert 0 == 1&#10; +  where 0 = len(set())">real = {'provenance': {'run_id': 63, 'source': '真实MySQL不可变行动状态叶子', 'model_requests_sent': 0, 'business_database_writes': 0, ....a14105e4050a5aae56a5931b13f749480eb95b99d3964019f', 'origin': 'generation', ...}, 'original_generation_index': 19, ...}
+
+    def test_current_problem_authorizes_only_its_exact_draft_topics(real):
+        state = state_for(real)
+        problems = record(real, state)
+        selected = auto_problem(problems)
+        ps = state["planning"]
+        ps["downstream_feedback"] = [deepcopy(selected)]
+        feedback = planner._draft_revision_feedback(ps, 23)
+        previous = ps["planning_records"][23]["output"]
+        protected = planner._protected_draft_topics(previous, feedback)
+        editable = {target["identity"]["coverage_intent"] for target in selected["current_draft_origins"]
+                    if target["planning_batch_index"] == 23}
+&gt;       assert len(editable) == 1
+E       assert 0 == 1
+E        +  where 0 = len(set())
+
+output\qa\2026-11-13-agent-cost-rerun\round-04\feedback-lifecycle\test_closed_feedback_real.py:229: AssertionError</failure></testcase></testsuite></testsuites>

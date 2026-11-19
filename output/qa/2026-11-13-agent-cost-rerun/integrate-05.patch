@@ -1,0 +1,594 @@
+--- a/backend/modules/agent_platform/checkpoint_storage.py
++++ b/backend/modules/agent_platform/checkpoint_storage.py
+@@ -245,7 +245,7 @@
+     if (not isinstance(value, dict) or value.get("version") != CHECKPOINT_VERSION
+             or value.get("storage") != CHECKPOINT_STORAGE or any(key in value for key in ("state", "receipts", "validated_agent_calls"))
+             or not isinstance(value.get("budget"), dict) or not isinstance(value.get("projection"), dict)):
+-        raise CheckpointStorageError("旧内嵌检查点必须显式迁移，不能隐式恢复或混合双写")
++        raise CheckpointStorageError("检查点协议不受支持；当前运行仅接受 artifact-journal-v1 的 v3 检查点")
+     if value.get("input_hash") != value.get("input_ref", {}).get("sha256") or value.get("state_hash") != value.get("state_ref", {}).get("sha256"):
+         raise CheckpointStorageError("检查点内容引用与完整摘要不一致")
+     packed = node.input_payload or {}
+@@ -499,86 +499,3 @@
+     node.sdk_state = {**dict(node.sdk_state or {}), "action_checkpoint": compact}
+     db.add(node)
+     return compact
+-
+-
+-def migrate_inline_checkpoint(db: Session, run: AgentRun, node: AgentNodeRun) -> dict[str, Any]:
+-    """显式结构迁移，不改变业务状态、原执行契约、原输入或已用预算；不自行提交。"""
+-    if run.id != node.run_id or run.status == "running":
+-        raise CheckpointStorageError("迁移必须绑定原运行且运行不能仍由执行器持有")
+-    old = deepcopy((node.sdk_state or {}).get("action_checkpoint"))
+-    if old is None:
+-        raise CheckpointStorageError("节点没有可迁移的检查点")
+-    if old.get("version") == CHECKPOINT_VERSION:
+-        compact = compact_checkpoint(node)
+-        validated_branch(db, node, compact)
+-        return compact
+-    if old.get("version") != 2 or not isinstance(old.get("state"), dict) or not isinstance(old.get("receipts"), dict):
+-        raise CheckpointStorageError("旧检查点缺少可证明的有序契约，不能猜测升级")
+-    from .input_snapshots import restore_node_input
+-    source_input = restore_node_input(node, lambda key: db.get(AgentNodeRun, key))
+-    if old.get("input_hash") != content_hash(source_input) or old.get("state_hash") != content_hash(old["state"]):
+-        raise CheckpointStorageError("旧检查点输入或领域摘要不一致，拒绝迁移")
+-    sequences = set()
+-    active = []
+-    for call_id, record in old["receipts"].items():
+-        sequence = record.get("started_sequence")
+-        if (record.get("tool_call_id") != call_id or type(sequence) is not int or sequence <= 0 or sequence in sequences
+-                or record.get("status") not in {"started", "completed", "failed"}
+-                or record.get("arguments_hash") != content_hash(record.get("arguments"))):
+-            raise CheckpointStorageError("旧动作回执没有可证明的唯一启动顺序或参数身份")
+-        sequences.add(sequence)
+-        if record["status"] == "started":
+-            active.append(record)
+-    if len(active) > 1:
+-        raise CheckpointStorageError("旧串行检查点存在多个未完成动作")
+-    calls = old.get("validated_agent_calls", {})
+-    if not isinstance(calls, dict):
+-        raise CheckpointStorageError("旧专业结果目录无效")
+-    for key, record in calls.items():
+-        if (record.get("status") != "validated" or key != content_hash(record.get("identity"))
+-                or record.get("identity", {}).get("execution_semantic_hash") != old.get("execution_semantic_hash")
+-                or record.get("parent_tool_call_id") not in old["receipts"]
+-                or record.get("raw_output_hash") != content_hash(record.get("raw_output"))
+-                or record.get("output_hash") != content_hash(record.get("output"))
+-                or record.get("result_type") != record.get("output", {}).get("result_type", "output")):
+-            raise CheckpointStorageError("旧专业结果的身份或完整内容摘要不一致")
+-    store = store_for_node(db, node)
+-    input_ref, state_ref = store.put(source_input), store.put(old["state"])
+-    node.input_payload = {INPUT_MARKER: 1, "ref": input_ref}
+-    branch = create_branch(db, node, old["input_hash"])
+-    receipt_cursor = call_cursor = 0
+-    for record in sorted(old["receipts"].values(), key=lambda value: value["started_sequence"]):
+-        row = AgentActionReceiptRecord(branch_id=branch.id, tool_call_id=record["tool_call_id"],
+-                                       record=pack_record(store, record, ("arguments", "result", "error")))
+-        db.add(row)
+-        db.flush()
+-        receipt_cursor = row.id
+-    saved_counts = {}
+-    for key, record in calls.items():
+-        row = AgentValidatedCallRecord(branch_id=branch.id, call_key=key, agent_key=record["identity"]["agent_key"],
+-                                       parent_tool_call_id=record["parent_tool_call_id"],
+-                                       record=pack_record(store, record, ("raw_output", "output")))
+-        db.add(row)
+-        db.flush()
+-        call_cursor = row.id
+-        saved_counts[row.agent_key] = saved_counts.get(row.agent_key, 0) + 1
+-    current = active[0] if active else max(old["receipts"].values(), key=lambda value: value["started_sequence"], default=None)
+-    compact = {key: deepcopy(value) for key, value in old.items() if key not in {"version", "state", "receipts", "validated_agent_calls"}}
+-    compact.update(version=CHECKPOINT_VERSION, storage=CHECKPOINT_STORAGE, input_ref=input_ref, state_ref=state_ref,
+-                   journal_ref={"branch_id": branch.id, "receipt_cursor": receipt_cursor, "call_cursor": call_cursor},
+-                   projection={**state_projection(old["state"]), "last_started_sequence": max(sequences, default=0),
+-                               "current_action": {key: current[key] for key in ("tool_key", "tool_call_id", "status", "started_sequence")} if current else None,
+-                               "saved_child_call_count": len(calls), "saved_child_counts": saved_counts,
+-                               "current_action_completed_child_count": sum(record["parent_tool_call_id"] == current["tool_call_id"] for record in calls.values()) if current else 0})
+-    node.sdk_state = {**dict(node.sdk_state or {}), "action_checkpoint": compact}
+-    db.add(node)
+-    db.flush()
+-    restored = hydrate_action_checkpoint(db, node)
+-    if (restored["state"] != old["state"] or restored["budget"] != old["budget"]
+-            or restored.get("execution_semantic_hash") != old.get("execution_semantic_hash")):
+-        raise CheckpointStorageError("结构迁移改变了领域、预算或执行契约")
+-    for collection in ("receipts", "validated_agent_calls"):
+-        for key, original in old.get(collection, {}).items():
+-            if any(restored[collection][key].get(field) != value for field, value in original.items()):
+-                raise CheckpointStorageError("结构迁移改变了既有动作或专业结果")
+-    return compact
+--- a/backend/scripts/data_ops/migrations/migrate_action_checkpoint_storage.py
++++ /dev/null
+@@ -1,105 +0,0 @@
+-"""预览/显式迁移 v2 内嵌检查点与节点输入；不投递或执行任何历史任务。"""
+-
+-from __future__ import annotations
+-
+-import argparse
+-from copy import deepcopy
+-import json
+-from pathlib import Path
+-import sys
+-
+-sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
+-
+-from sqlalchemy import inspect, select
+-
+-from core.db.database import SessionLocal
+-from core.db.model_defs import (
+-    AgentRun, AgentNodeRun, AgentArtifactBlob, AgentJournalBranch,
+-    AgentActionReceiptRecord, AgentValidatedCallRecord,
+-)
+-from modules.agent_platform.checkpoint_storage import (
+-    INPUT_MARKER, CHECKPOINT_VERSION, canonical_bytes, migrate_inline_checkpoint, store_node_input,
+-)
+-from modules.agent_platform.run_repository import AgentRunRepository
+-
+-
+-TABLES = (AgentArtifactBlob, AgentJournalBranch, AgentActionReceiptRecord, AgentValidatedCallRecord)
+-
+-
+-def create_tables() -> list[str]:
+-    created = []
+-    with SessionLocal() as db:
+-        connection = db.connection()
+-        if connection.dialect.name == "mysql":
+-            connection.exec_driver_sql("SET SESSION lock_wait_timeout=10")
+-        for model in TABLES:
+-            if not inspect(connection).has_table(model.__tablename__):
+-                model.__table__.create(bind=connection, checkfirst=False)
+-                created.append(model.__tablename__)
+-        db.commit()
+-    return created
+-
+-
+-def migrate(*, apply=False, node_ids=None):
+-    rows = []
+-    with SessionLocal(autoflush=False) as db:
+-        repo = AgentRunRepository(db)
+-        identities = db.query(AgentNodeRun.id, AgentNodeRun.run_id).all()
+-        for node_id, run_id in sorted(identities):
+-            if node_ids and node_id not in node_ids:
+-                continue
+-            run = repo.get_run_for_update(run_id=run_id) if apply else db.get(AgentRun, run_id)
+-            node = db.get(AgentNodeRun, node_id)
+-            checkpoint = (node.sdk_state or {}).get("action_checkpoint")
+-            entry = {"node_id": node.id, "run_id": run.id, "status": run.status,
+-                     "checkpoint_version": checkpoint.get("version") if checkpoint else None,
+-                     "inline_checkpoint_bytes": len(canonical_bytes(checkpoint)) if checkpoint else 0,
+-                     "input_is_artifact": node.input_payload.get(INPUT_MARKER) == 1}
+-            if checkpoint and checkpoint.get("version") != CHECKPOINT_VERSION:
+-                entry["state_hash"] = checkpoint.get("state_hash")
+-                entry["missing_start_order"] = sum(type(value.get("started_sequence")) is not int
+-                                                   for value in checkpoint.get("receipts", {}).values())
+-                if apply:
+-                    before = deepcopy(checkpoint)
+-                    compact = migrate_inline_checkpoint(db, run, node)
+-                    entry["compact_checkpoint_bytes"] = len(canonical_bytes(compact))
+-                    assert compact["state_hash"] == before["state_hash"]
+-                    assert compact["input_hash"] == before["input_hash"]
+-                    assert compact["budget"] == before["budget"]
+-            elif node.input_payload.get(INPUT_MARKER) != 1:
+-                if apply:
+-                    if run.status == "running":
+-                        raise ValueError("运行仍由执行器持有，禁止迁移输入")
+-                    original = repo.read_node_input(node)
+-                    store_node_input(db, node, original)
+-                    db.add(node)
+-                    db.flush()
+-                    assert repo.read_node_input(node) == original
+-            rows.append(entry)
+-        if apply:
+-            db.commit()
+-        else:
+-            db.rollback()
+-    return rows
+-
+-
+-if __name__ == "__main__":
+-    parser = argparse.ArgumentParser(description=__doc__)
+-    parser.add_argument("--create-tables", action="store_true", help="只创建4张空表，不迁移记录或启动任务")
+-    parser.add_argument("--apply", action="store_true", help="显式迁移已停止的真实记录，默认只读预览")
+-    parser.add_argument("--node-id", type=int, action="append", help="限定真实节点；省略时处理全部历史节点")
+-    parser.add_argument("--output", type=Path)
+-    args = parser.parse_args()
+-    if args.create_tables and args.apply:
+-        parser.error("建表和迁移必须分开执行以保留可审查边界")
+-    report = {"model_requests": 0, "broker_submissions": 0, "business_status_changed": False}
+-    if args.create_tables:
+-        report["created_tables"] = create_tables()
+-    else:
+-        report["apply"] = args.apply
+-        report["nodes"] = migrate(apply=args.apply, node_ids=args.node_id)
+-    encoded = json.dumps(report, ensure_ascii=False, indent=2)
+-    if args.output:
+-        args.output.parent.mkdir(parents=True, exist_ok=True)
+-        args.output.write_text(encoded, encoding="utf-8")
+-    print(encoded)
+--- a/backend/scripts/data_ops/migrations/migrate_workflow_execution_modes.py
++++ /dev/null
+@@ -1,62 +0,0 @@
+-"""把现有 DAG 定义升级为显式 execution_mode。"""
+-
+-from __future__ import annotations
+-
+-import argparse
+-import os
+-import sys
+-from copy import deepcopy
+-
+-current_dir = os.path.dirname(os.path.abspath(__file__))
+-backend_dir = os.path.abspath(os.path.join(current_dir, "..", "..", ".."))
+-if backend_dir not in sys.path:
+-    sys.path.insert(0, backend_dir)
+-
+-from core.db.database import SessionLocal
+-from core.db.model_defs import AgentWorkflowDefinition
+-
+-
+-def migrate(*, apply: bool) -> tuple[int, int]:
+-    db = SessionLocal()
+-    pending = 0
+-    invalid = 0
+-    try:
+-        rows = db.query(AgentWorkflowDefinition).order_by(AgentWorkflowDefinition.id.asc()).all()
+-        for row in rows:
+-            definition = deepcopy(dict(row.definition or {}))
+-            mode = definition.get("execution_mode")
+-            if mode is None:
+-                if not isinstance(definition.get("nodes"), list) or not definition.get("output_node_key"):
+-                    invalid += 1
+-                    print(f"无法升级工作流 {row.id}：缺少当前 DAG 必需字段")
+-                    continue
+-                definition["execution_mode"] = "dag"
+-                pending += 1
+-                if apply:
+-                    row.definition = definition
+-                    db.add(row)
+-            elif mode not in {"dag", "agent_network"}:
+-                invalid += 1
+-                print(f"工作流 {row.id} 的 execution_mode 无效：{mode}")
+-        if apply:
+-            if invalid:
+-                db.rollback()
+-                raise RuntimeError(f"存在 {invalid} 条无法升级的工作流定义，事务已回滚")
+-            db.commit()
+-        else:
+-            db.rollback()
+-        return pending, invalid
+-    finally:
+-        db.close()
+-
+-
+-def main() -> None:
+-    parser = argparse.ArgumentParser(description="升级工作流为显式 execution_mode")
+-    parser.add_argument("--apply", action="store_true", help="写入真实数据库；默认只读预览")
+-    args = parser.parse_args()
+-    pending, invalid = migrate(apply=bool(args.apply))
+-    print(f"{'已写入' if args.apply else '只读预览'}：待升级 {pending} 条，无效 {invalid} 条。")
+-
+-
+-if __name__ == "__main__":
+-    main()
+--- a/backend/scripts/data_ops/migrations/migrate_agent_run_contracts.py
++++ /dev/null
+@@ -1,67 +0,0 @@
+-"""只读校验 AgentRun 是否满足当前运行契约。
+-
+-历史数据迁移已经完成。本脚本不再回填、重建或解释旧运行；任何缺少当前
+-任务身份、输入指纹、检查点版本或执行契约的运行都会被报告为不可用，
+-需要重新创建任务。
+-"""
+-
+-from __future__ import annotations
+-
+-import os
+-import sys
+-
+-current_dir = os.path.dirname(os.path.abspath(__file__))
+-backend_dir = os.path.abspath(os.path.join(current_dir, "..", "..", ".."))
+-if backend_dir not in sys.path:
+-    sys.path.insert(0, backend_dir)
+-
+-import core.db.model_defs  # noqa: F401
+-from core.db.database import SessionLocal
+-from core.db.model_defs import AgentRun
+-from modules.agent_platform.run_contract import (
+-    CHECKPOINT_SCHEMA_VERSION,
+-    CONTRACT_SCHEMA_VERSION,
+-)
+-
+-
+-def validate() -> tuple[int, list[str]]:
+-    """返回已检查数量和不满足当前协议的运行说明。"""
+-    db = SessionLocal()
+-    invalid: list[str] = []
+-    try:
+-        rows = db.query(AgentRun).order_by(AgentRun.id.asc()).all()
+-        for run in rows:
+-            context = dict(run.run_context or {})
+-            contract = context.get("execution_contract")
+-            problems: list[str] = []
+-            if not str(context.get("logical_task_id") or "").strip():
+-                problems.append("logical_task_id")
+-            if not str(context.get("attempt_id") or "").strip():
+-                problems.append("attempt_id")
+-            if not str(context.get("input_hash") or "").strip():
+-                problems.append("input_hash")
+-            if context.get("checkpoint_schema_version") != CHECKPOINT_SCHEMA_VERSION:
+-                problems.append("checkpoint_schema_version")
+-            if not isinstance(contract, dict):
+-                problems.append("execution_contract")
+-            elif int(contract.get("schema_version") or 0) != CONTRACT_SCHEMA_VERSION:
+-                problems.append("execution_contract.schema_version")
+-            elif not str(contract.get("hash") or "").strip():
+-                problems.append("execution_contract.hash")
+-            if problems:
+-                invalid.append(f"Run {run.id}: {', '.join(problems)}")
+-        return len(rows), invalid
+-    finally:
+-        db.close()
+-
+-
+-def main() -> int:
+-    checked, invalid = validate()
+-    print(f"已检查 {checked} 条 AgentRun；当前协议无效 {len(invalid)} 条。")
+-    for item in invalid:
+-        print(item)
+-    return 1 if invalid else 0
+-
+-
+-if __name__ == "__main__":
+-    raise SystemExit(main())
+--- a/backend/scripts/qa/verify/verify_checkpoint_consumers_real_data.py
++++ b/backend/scripts/qa/verify/verify_checkpoint_consumers_real_data.py
+@@ -1,4 +1,4 @@
+-"""真实历史节点显式迁移及预算增量的 MySQL 回滚验证，不发送模型请求。"""
++"""真实 v3 检查点消费者及预算增量的 MySQL 回滚验证，不发送模型请求。"""
+ 
+ from __future__ import annotations
+ 
+@@ -64,8 +64,7 @@
+ 
+ 
+ def verify(run_id, node_id):
+-    # 迁移入口是人工显式调用的离线边界，不能在生产恢复路径里自动升级旧状态。
+-    from modules.agent_platform.checkpoint_storage import migrate_inline_checkpoint
++    from modules.agent_platform.checkpoint_storage import compact_checkpoint
+ 
+     report = {"observed_at": datetime.now(timezone.utc).isoformat(), "run_id": run_id,
+               "node_id": node_id, "model_requests": 0, "persisted_database_changes": 0,
+@@ -101,15 +100,15 @@
+                     raise ValueError("真实请求缺少完整非负用量，不允许补造报告值")
+                 report["source_request_sequence"] = actual["sequence"]
+                 report["replayed_actual_delta"] = delta
+-                compact = migrate_inline_checkpoint(db, run, node)
++                compact = compact_checkpoint(node)
+                 db.flush()
+-                checks["explicit_v3_migration"] = compact["version"] == 3 and compact["storage"] == "artifact-journal-v1"
++                checks["current_v3_checkpoint"] = compact["version"] == 3 and compact["storage"] == "artifact-journal-v1"
+                 checks["no_embedded_domain_or_journal"] = not {"state", "receipts", "validated_agent_calls"}.intersection(compact)
+-                checks["migration_preserves_usage_and_input_hash"] = (compact["budget"] == old_cp["budget"]
++                checks["read_preserves_usage_and_input_hash"] = (compact["budget"] == old_cp["budget"]
+                                                                         and compact["input_hash"] == old_cp["input_hash"])
+                 report["old_checkpoint_bytes"] = len(json.dumps(old_cp, ensure_ascii=False).encode())
+                 report["compact_checkpoint_bytes"] = len(json.dumps(compact, ensure_ascii=False).encode())
+-                report["node_sdk_state_bytes_after_migration"] = len(json.dumps(node.sdk_state, ensure_ascii=False).encode())
++                report["node_sdk_state_bytes"] = len(json.dumps(node.sdk_state, ensure_ascii=False).encode())
+                 # 从这条实际成功回执之前的累计计数重放，不构造新的模型输出或使用量。
+                 current = action_budget_usage(compact["budget"])
+                 prior_cursor = {key: current[key] - delta[key] for key in current}
+@@ -182,11 +181,11 @@
+         after = fingerprints(db, run_id, node_id)
+         counts_after = storage_counts(db)
+     checks["rollback_restores_original_rows"] = before == after
+-    checks["rollback_removes_all_migration_artifacts_and_logs"] = counts_before == counts_after
++    checks["rollback_removes_all_new_artifacts_and_logs"] = counts_before == counts_after
+     assert all(checks.values()), checks
+     report["after"] = after
+     report["storage_counts_after"] = counts_after
+-    report["scope_note"] = ("仅证明真实历史状态的显式存储迁移和消费者协议；不执行当前业务模型，"
++    report["scope_note"] = ("仅证明真实 v3 检查点的消费者协议；不执行当前业务模型，"
+                             "不创建 Run/Node，不宣称旧状态满足新业务 schema。生命周期最终 artifacts/output 仍沿既有边界。")
+     return report
+ 
+--- a/backend/scripts/qa/verify/verify_checkpoint_history_real_data.py
++++ b/backend/scripts/qa/verify/verify_checkpoint_history_real_data.py
+@@ -1,4 +1,4 @@
+-"""用迁移前真实节点备份验证检查点保真；默认迁移后回滚，可只读核验已落库引用。"""
++"""只读比较真实历史备份和已落库 v3 检查点，验证原始证据保真。"""
+ 
+ from __future__ import annotations
+ 
+@@ -14,7 +14,7 @@
+ from core.db.database import SessionLocal
+ from core.db.model_defs import AgentNodeRun
+ from modules.agent_platform.checkpoint_storage import (
+-    canonical_bytes, content_hash, hydrate_action_checkpoint, hydrate_node_input, migrate_inline_checkpoint,
++    canonical_bytes, content_hash, hydrate_action_checkpoint, hydrate_node_input, compact_checkpoint,
+ )
+ from modules.agent_platform.run_repository import AgentRunRepository
+ 
+@@ -35,11 +35,10 @@
+ def main():
+     parser = argparse.ArgumentParser(description=__doc__)
+     parser.add_argument("--backup", type=Path, default=Path("../output/qa/2026-11-11-checkpoint-before-storage-migration.json"))
+-    parser.add_argument("--persisted", action="store_true", help="不迁移、不写入，只读核验已提交引用")
+     parser.add_argument("--output", type=Path, default=Path("../output/qa/2026-11-11-historical-checkpoint-roundtrip.json"))
+     args = parser.parse_args()
+     original_nodes = json.loads(args.backup.read_text(encoding="utf-8"))
+-    report = {"persisted_readback": args.persisted, "model_requests": 0, "broker_submissions": 0,
++    report = {"persisted_readback": True, "model_requests": 0, "broker_submissions": 0,
+               "database_commit": False, "nodes": []}
+     tables = ("agent_artifact_blobs", "agent_journal_branches", "agent_action_receipts", "agent_validated_calls")
+     with SessionLocal() as db:
+@@ -47,16 +46,13 @@
+     for original_node in original_nodes:
+         with SessionLocal(autoflush=False) as db:
+             repo = AgentRunRepository(db)
+-            if args.persisted:
+-                db.execute(text("SET TRANSACTION READ ONLY"))
+-                run = repo.get_run(run_id=original_node["run_id"])
+-            else:
+-                run = repo.get_run_for_update(run_id=original_node["run_id"])
++            db.execute(text("SET TRANSACTION READ ONLY"))
++            run = repo.get_run(run_id=original_node["run_id"])
+             node = db.get(AgentNodeRun, original_node["id"])
+             original = original_node["sdk_state"]["action_checkpoint"]
+             assert node.status == original_node["status"]
+             original_status = run.status
+-            compact = node.sdk_state["action_checkpoint"] if args.persisted else migrate_inline_checkpoint(db, run, node)
++            compact = compact_checkpoint(node)
+             restored = hydrate_action_checkpoint(db, node)
+             assert run.status == original_status
+             assert all(restored.get(key) == value for key, value in original.items()
+--- a/backend/scripts/qa/verify/verify_compact_journal_real_data.py
++++ b/backend/scripts/qa/verify/verify_compact_journal_real_data.py
+@@ -21,7 +21,7 @@
+ from modules.agent_platform.run_repository import AgentRunRepository
+ from modules.agent_platform.checkpoint_storage import (
+     ArtifactStore, CheckpointStorageError, canonical_bytes, content_hash, compact_checkpoint,
+-    hydrate_action_checkpoint, migrate_inline_checkpoint,
++    hydrate_action_checkpoint,
+ )
+ from scripts.qa.verify.verify_checkpoint_consumers_real_data import fingerprints, storage_counts, _block_external_connection
+ 
+@@ -60,8 +60,8 @@
+ 
+     def read_and_budget(db, connection):
+         run, node = db.get(AgentRun, 13), db.get(AgentNodeRun, 123)
+-        old = deepcopy(node.sdk_state["action_checkpoint"])
+-        compact = migrate_inline_checkpoint(db, run, node)
++        old = hydrate_action_checkpoint(db, node)
++        compact = compact_checkpoint(node)
+         journal = activate(db, run, node)
+         checks["metadata_has_no_domain_or_logs"] = not {"state", "receipts", "validated_agent_calls"}.intersection(journal.metadata())
+         checks["state_only_hash_matches"] = content_hash(journal.load_state()) == old["state_hash"]
+@@ -135,7 +135,7 @@
+ 
+     def first_initialization(db, _connection):
+         run, node = db.get(AgentRun, 47), db.get(AgentNodeRun, 378)
+-        old = deepcopy(node.sdk_state["action_checkpoint"])
++        old = hydrate_action_checkpoint(db, node)
+         source_input = AgentRunRepository(db).read_node_input(node)
+         node.sdk_state = {key: value for key, value in node.sdk_state.items()
+                           if key not in {"action_checkpoint", "action_usage", "action_usage_recorded"}}
+@@ -148,8 +148,8 @@
+     def fork_history(db, _connection):
+         run = db.get(AgentRun, 13)
+         parent, child = db.get(AgentNodeRun, 122), db.get(AgentNodeRun, 123)
+-        original_child = deepcopy(child.sdk_state["action_checkpoint"])
+-        parent_cp = migrate_inline_checkpoint(db, run, parent)
++        original_child = hydrate_action_checkpoint(db, child)
++        parent_cp = compact_checkpoint(parent)
+         assert parent_cp["input_hash"] == original_child["input_hash"]
+         parent_view = hydrate_action_checkpoint(db, parent)
+         child.input_payload = deepcopy(parent.input_payload)
+--- a/backend/modules/agent_platform/conflict_confirmation.py
++++ b/backend/modules/agent_platform/conflict_confirmation.py
+@@ -71,7 +71,7 @@
+     sdk = dict(node.sdk_state or {})
+     header = sdk.get("action_checkpoint")
+     if not isinstance(header, dict) or header.get("version") != 3 or header.get("storage") != "artifact-journal-v1":
+-        raise ValueError("旧动作检查点需要显式迁移后才能应用确认结果")
++        raise ValueError("动作检查点协议不受支持，不能应用确认结果")
+     request = approval.request_payload
+     items = request.get("items", [])
+     expected = {item["id"] for item in items}
+--- a/backend/modules/agent_platform/serialization.py
++++ b/backend/modules/agent_platform/serialization.py
+@@ -146,7 +146,7 @@
+ 
+             header["projection"] = checkpoint_projection(checkpoint)
+         else:
+-            header["projection"] = {"requires_migration": True}
++            header["projection"] = {"unsupported_checkpoint": True}
+         sdk_state["action_checkpoint"] = header
+     return {
+         "id": value.id,
+--- a/frontend/src/components/agent-platform/runPresentation.ts
++++ b/frontend/src/components/agent-platform/runPresentation.ts
+@@ -110,7 +110,7 @@
+   const checkpoint = objectValue(node.sdk_state.action_checkpoint);
+   if (node.node_type === 'agent_network' && Object.keys(checkpoint).length > 0) {
+     const projection = objectValue(checkpoint.projection);
+-    if (projection.requires_migration === true) return '此检查点不属于当前执行契约，需显式迁移';
++    if (projection.unsupported_checkpoint === true) return '此检查点协议不受支持，仅保留历史记录';
+     const parts = [`第 ${node.attempt} 次尝试`];
+     const planning = objectValue(projection.planning_progress);
+     const progressItems: [string, unknown][] = [
+--- /dev/null
++++ b/backend/tests/agent_platform/test_checkpoint_protocol_real_data.py
+@@ -0,0 +1,73 @@
++"""真实历史 v2 与 Run59 v3 的协议边界；不迁移、不启动业务或模型。"""
++
++from copy import deepcopy
++import gzip
++import json
++from pathlib import Path
++from types import SimpleNamespace
++
++import pytest
++
++from modules.agent_platform.action_journal import action_state_hash
++from modules.agent_platform.checkpoint_storage import CheckpointStorageError, compact_checkpoint
++
++
++@pytest.fixture(scope="module")
++def real():
++    path = Path(__file__).with_name("fixtures") / "checkpoint_protocol_real.json.gz"
++    with gzip.open(path, "rt", encoding="utf-8") as stream:
++        value = json.load(stream)
++    expected = value.pop("data_sha256")
++    assert action_state_hash(value) == expected
++    assert value["legacy_node"]["id"] == value["provenance"]["legacy_node_id"]
++    assert value["current_node"]["id"] == value["provenance"]["current_node_id"]
++    return value
++
++
++def test_current_real_v3_checkpoint_is_read_without_rewriting_evidence(real):
++    record = deepcopy(real["current_node"])
++    before = deepcopy(record)
++    checkpoint = compact_checkpoint(SimpleNamespace(**record))
++    assert checkpoint == record["sdk_state"]["action_checkpoint"]
++    assert checkpoint["version"] == 3
++    assert checkpoint["storage"] == "artifact-journal-v1"
++    assert record == before
++    assert checkpoint is not record["sdk_state"]["action_checkpoint"]
++
++
++def test_actual_archived_v2_checkpoint_is_refused_without_migration(real):
++    record = deepcopy(real["legacy_node"])
++    assert record["sdk_state"]["action_checkpoint"]["version"] == 2
++    before = deepcopy(record)
++    with pytest.raises(CheckpointStorageError):
++        compact_checkpoint(SimpleNamespace(**record))
++    assert record == before
++
++
++@pytest.mark.parametrize("version", [None, 1, 2, 4])
++def test_corrupted_real_v3_protocol_version_is_refused(real, version):
++    record = deepcopy(real["current_node"])
++    # 只破坏真实协议版本，不编造业务事实、模型结果或回执。
++    record["sdk_state"]["action_checkpoint"]["version"] = version
++    before = deepcopy(record)
++    with pytest.raises(CheckpointStorageError):
++        compact_checkpoint(SimpleNamespace(**record))
++    assert record == before
++
++
++@pytest.mark.parametrize("embedded_field", ["state", "receipts", "validated_agent_calls"])
++def test_current_checkpoint_cannot_mix_archived_inline_bodies(real, embedded_field):
++    record = deepcopy(real["current_node"])
++    legacy = real["legacy_node"]["sdk_state"]["action_checkpoint"]
++    record["sdk_state"]["action_checkpoint"][embedded_field] = deepcopy(legacy[embedded_field])
++    before = deepcopy(record)
++    with pytest.raises(CheckpointStorageError):
++        compact_checkpoint(SimpleNamespace(**record))
++    assert record == before
++
++
++def test_current_real_checkpoint_requires_explicit_storage_protocol(real):
++    record = deepcopy(real["current_node"])
++    del record["sdk_state"]["action_checkpoint"]["storage"]
++    with pytest.raises(CheckpointStorageError):
++        compact_checkpoint(SimpleNamespace(**record))

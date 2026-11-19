@@ -1,0 +1,225 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="7" failures="0" skipped="0" tests="7" time="6.331" timestamp="2026-11-13T18:01:53.939667+08:00" hostname="DESKTOP-F86RMFU"><testcase classname="backend.tests.agent_platform.test_generation_confirmation_real_data" name="test_real_ap15_answer_applies_atomically_without_approving_cases_or_resetting_budget" file="backend\tests\agent_platform\test_generation_confirmation_real_data.py" line="152" time="0.132"><error message="failed on setup with &quot;assert datetime.datetime(2026, 11, 13, 5, 41, 8) &gt; datetime.datetime(2026, 11, 13, 12, 35, 19)&#10; +  where datetime.datetime(2026, 11, 13, 5, 41, 8) = &lt;core.db.model_defs.agent_platform.AgentApproval object at 0x000001B2491E3650&gt;.decided_at&#10; +  and   datetime.datetime(2026, 11, 13, 12, 35, 19) = &lt;core.db.model_defs.agent_platform.AgentRun object at 0x000001B248AD60D0&gt;.created_at&quot;">real = {'current_cases_after': [{'content': {'coverage_ids': ['COV-0001'], 'module': '学习会话与环节管理', 'preconditions': [], 'prior...'current_input': {'batch_case_limit': 5, 'case_budget': 70, 'disable_result_cache': True, 'requirement': '', ...}, ...}
+
+    @pytest.fixture(scope="module")
+    def actual_pending_source(real):
+        """Run61创建时AP15尚未决定，按真实时间冻结来源而非从Run63删批准。"""
+        archived = Path(__file__).resolve().parents[3] / "output/qa/2026-11-13-agent-cost-rerun/round-02/resume/before-approval.json"
+        pause = json.loads(archived.read_text(encoding="utf-8-sig"))
+        commands = []
+    
+        def only_select(connection, cursor, statement, parameters, context, executemany):
+            command = statement.lstrip().split(None, 1)[0].upper()
+            assert command == "SELECT", f"人工确认CPU验证禁止线上数据库写入：{command}"
+            commands.append(command)
+    
+        protect_run = text("SELECT SHA2(CAST(input_payload AS CHAR),256), SHA2(CAST(run_context AS CHAR),256),"
+                           " SHA2(CAST(output_payload AS CHAR),256),status FROM agent_runs WHERE id=61")
+        protect_approval = text("SELECT SHA2(CAST(request_payload AS CHAR),256), SHA2(CAST(decision_payload AS CHAR),256),"
+                                " status,decided_at,decided_by_user_id FROM agent_approvals WHERE id=15")
+        with source_engine.connect() as connection:
+            connection.exec_driver_sql("START TRANSACTION READ ONLY")
+            event.listen(connection, "before_cursor_execute", only_select)
+            try:
+                with Session(bind=connection, autoflush=False, expire_on_commit=False) as db:
+                    protected = [tuple(db.execute(query).one()) for query in (protect_run, protect_approval)]
+                    run, original = db.get(AgentRun, 61), db.get(AgentApproval, 15)
+                    assert (original.run_id, original.node_run_id, original.status) == (61, 413, "approved")
+                    assert original.decided_by_user_id == run.user_id
+&gt;                   assert original.decided_at &gt; run.created_at
+E                   assert datetime.datetime(2026, 11, 13, 5, 41, 8) &gt; datetime.datetime(2026, 11, 13, 12, 35, 19)
+E                    +  where datetime.datetime(2026, 11, 13, 5, 41, 8) = &lt;core.db.model_defs.agent_platform.AgentApproval object at 0x000001B2491E3650&gt;.decided_at
+E                    +  and   datetime.datetime(2026, 11, 13, 12, 35, 19) = &lt;core.db.model_defs.agent_platform.AgentRun object at 0x000001B248AD60D0&gt;.created_at
+
+backend\tests\agent_platform\test_generation_confirmation_real_data.py:54: AssertionError</error></testcase><testcase classname="backend.tests.agent_platform.test_generation_confirmation_real_data" name="test_invalid_confirmation_rejected_without_state_or_artifact_changes[stale_hash]" file="backend\tests\agent_platform\test_generation_confirmation_real_data.py" line="192" time="0.002"><error message="failed on setup with &quot;assert datetime.datetime(2026, 11, 13, 5, 41, 8) &gt; datetime.datetime(2026, 11, 13, 12, 35, 19)&#10; +  where datetime.datetime(2026, 11, 13, 5, 41, 8) = &lt;core.db.model_defs.agent_platform.AgentApproval object at 0x000001B2491E3650&gt;.decided_at&#10; +  and   datetime.datetime(2026, 11, 13, 12, 35, 19) = &lt;core.db.model_defs.agent_platform.AgentRun object at 0x000001B248AD60D0&gt;.created_at&quot;">real = {'current_cases_after': [{'content': {'coverage_ids': ['COV-0001'], 'module': '学习会话与环节管理', 'preconditions': [], 'prior...'current_input': {'batch_case_limit': 5, 'case_budget': 70, 'disable_result_cache': True, 'requirement': '', ...}, ...}
+
+    @pytest.fixture(scope="module")
+    def actual_pending_source(real):
+        """Run61创建时AP15尚未决定，按真实时间冻结来源而非从Run63删批准。"""
+        archived = Path(__file__).resolve().parents[3] / "output/qa/2026-11-13-agent-cost-rerun/round-02/resume/before-approval.json"
+        pause = json.loads(archived.read_text(encoding="utf-8-sig"))
+        commands = []
+    
+        def only_select(connection, cursor, statement, parameters, context, executemany):
+            command = statement.lstrip().split(None, 1)[0].upper()
+            assert command == "SELECT", f"人工确认CPU验证禁止线上数据库写入：{command}"
+            commands.append(command)
+    
+        protect_run = text("SELECT SHA2(CAST(input_payload AS CHAR),256), SHA2(CAST(run_context AS CHAR),256),"
+                           " SHA2(CAST(output_payload AS CHAR),256),status FROM agent_runs WHERE id=61")
+        protect_approval = text("SELECT SHA2(CAST(request_payload AS CHAR),256), SHA2(CAST(decision_payload AS CHAR),256),"
+                                " status,decided_at,decided_by_user_id FROM agent_approvals WHERE id=15")
+        with source_engine.connect() as connection:
+            connection.exec_driver_sql("START TRANSACTION READ ONLY")
+            event.listen(connection, "before_cursor_execute", only_select)
+            try:
+                with Session(bind=connection, autoflush=False, expire_on_commit=False) as db:
+                    protected = [tuple(db.execute(query).one()) for query in (protect_run, protect_approval)]
+                    run, original = db.get(AgentRun, 61), db.get(AgentApproval, 15)
+                    assert (original.run_id, original.node_run_id, original.status) == (61, 413, "approved")
+                    assert original.decided_by_user_id == run.user_id
+&gt;                   assert original.decided_at &gt; run.created_at
+E                   assert datetime.datetime(2026, 11, 13, 5, 41, 8) &gt; datetime.datetime(2026, 11, 13, 12, 35, 19)
+E                    +  where datetime.datetime(2026, 11, 13, 5, 41, 8) = &lt;core.db.model_defs.agent_platform.AgentApproval object at 0x000001B2491E3650&gt;.decided_at
+E                    +  and   datetime.datetime(2026, 11, 13, 12, 35, 19) = &lt;core.db.model_defs.agent_platform.AgentRun object at 0x000001B248AD60D0&gt;.created_at
+
+backend\tests\agent_platform\test_generation_confirmation_real_data.py:54: AssertionError</error></testcase><testcase classname="backend.tests.agent_platform.test_generation_confirmation_real_data" name="test_invalid_confirmation_rejected_without_state_or_artifact_changes[tampered_item]" file="backend\tests\agent_platform\test_generation_confirmation_real_data.py" line="192" time="0.001"><error message="failed on setup with &quot;assert datetime.datetime(2026, 11, 13, 5, 41, 8) &gt; datetime.datetime(2026, 11, 13, 12, 35, 19)&#10; +  where datetime.datetime(2026, 11, 13, 5, 41, 8) = &lt;core.db.model_defs.agent_platform.AgentApproval object at 0x000001B2491E3650&gt;.decided_at&#10; +  and   datetime.datetime(2026, 11, 13, 12, 35, 19) = &lt;core.db.model_defs.agent_platform.AgentRun object at 0x000001B248AD60D0&gt;.created_at&quot;">real = {'current_cases_after': [{'content': {'coverage_ids': ['COV-0001'], 'module': '学习会话与环节管理', 'preconditions': [], 'prior...'current_input': {'batch_case_limit': 5, 'case_budget': 70, 'disable_result_cache': True, 'requirement': '', ...}, ...}
+
+    @pytest.fixture(scope="module")
+    def actual_pending_source(real):
+        """Run61创建时AP15尚未决定，按真实时间冻结来源而非从Run63删批准。"""
+        archived = Path(__file__).resolve().parents[3] / "output/qa/2026-11-13-agent-cost-rerun/round-02/resume/before-approval.json"
+        pause = json.loads(archived.read_text(encoding="utf-8-sig"))
+        commands = []
+    
+        def only_select(connection, cursor, statement, parameters, context, executemany):
+            command = statement.lstrip().split(None, 1)[0].upper()
+            assert command == "SELECT", f"人工确认CPU验证禁止线上数据库写入：{command}"
+            commands.append(command)
+    
+        protect_run = text("SELECT SHA2(CAST(input_payload AS CHAR),256), SHA2(CAST(run_context AS CHAR),256),"
+                           " SHA2(CAST(output_payload AS CHAR),256),status FROM agent_runs WHERE id=61")
+        protect_approval = text("SELECT SHA2(CAST(request_payload AS CHAR),256), SHA2(CAST(decision_payload AS CHAR),256),"
+                                " status,decided_at,decided_by_user_id FROM agent_approvals WHERE id=15")
+        with source_engine.connect() as connection:
+            connection.exec_driver_sql("START TRANSACTION READ ONLY")
+            event.listen(connection, "before_cursor_execute", only_select)
+            try:
+                with Session(bind=connection, autoflush=False, expire_on_commit=False) as db:
+                    protected = [tuple(db.execute(query).one()) for query in (protect_run, protect_approval)]
+                    run, original = db.get(AgentRun, 61), db.get(AgentApproval, 15)
+                    assert (original.run_id, original.node_run_id, original.status) == (61, 413, "approved")
+                    assert original.decided_by_user_id == run.user_id
+&gt;                   assert original.decided_at &gt; run.created_at
+E                   assert datetime.datetime(2026, 11, 13, 5, 41, 8) &gt; datetime.datetime(2026, 11, 13, 12, 35, 19)
+E                    +  where datetime.datetime(2026, 11, 13, 5, 41, 8) = &lt;core.db.model_defs.agent_platform.AgentApproval object at 0x000001B2491E3650&gt;.decided_at
+E                    +  and   datetime.datetime(2026, 11, 13, 12, 35, 19) = &lt;core.db.model_defs.agent_platform.AgentRun object at 0x000001B248AD60D0&gt;.created_at
+
+backend\tests\agent_platform\test_generation_confirmation_real_data.py:54: AssertionError</error></testcase><testcase classname="backend.tests.agent_platform.test_generation_confirmation_real_data" name="test_invalid_confirmation_rejected_without_state_or_artifact_changes[missing_answer]" file="backend\tests\agent_platform\test_generation_confirmation_real_data.py" line="192" time="0.001"><error message="failed on setup with &quot;assert datetime.datetime(2026, 11, 13, 5, 41, 8) &gt; datetime.datetime(2026, 11, 13, 12, 35, 19)&#10; +  where datetime.datetime(2026, 11, 13, 5, 41, 8) = &lt;core.db.model_defs.agent_platform.AgentApproval object at 0x000001B2491E3650&gt;.decided_at&#10; +  and   datetime.datetime(2026, 11, 13, 12, 35, 19) = &lt;core.db.model_defs.agent_platform.AgentRun object at 0x000001B248AD60D0&gt;.created_at&quot;">real = {'current_cases_after': [{'content': {'coverage_ids': ['COV-0001'], 'module': '学习会话与环节管理', 'preconditions': [], 'prior...'current_input': {'batch_case_limit': 5, 'case_budget': 70, 'disable_result_cache': True, 'requirement': '', ...}, ...}
+
+    @pytest.fixture(scope="module")
+    def actual_pending_source(real):
+        """Run61创建时AP15尚未决定，按真实时间冻结来源而非从Run63删批准。"""
+        archived = Path(__file__).resolve().parents[3] / "output/qa/2026-11-13-agent-cost-rerun/round-02/resume/before-approval.json"
+        pause = json.loads(archived.read_text(encoding="utf-8-sig"))
+        commands = []
+    
+        def only_select(connection, cursor, statement, parameters, context, executemany):
+            command = statement.lstrip().split(None, 1)[0].upper()
+            assert command == "SELECT", f"人工确认CPU验证禁止线上数据库写入：{command}"
+            commands.append(command)
+    
+        protect_run = text("SELECT SHA2(CAST(input_payload AS CHAR),256), SHA2(CAST(run_context AS CHAR),256),"
+                           " SHA2(CAST(output_payload AS CHAR),256),status FROM agent_runs WHERE id=61")
+        protect_approval = text("SELECT SHA2(CAST(request_payload AS CHAR),256), SHA2(CAST(decision_payload AS CHAR),256),"
+                                " status,decided_at,decided_by_user_id FROM agent_approvals WHERE id=15")
+        with source_engine.connect() as connection:
+            connection.exec_driver_sql("START TRANSACTION READ ONLY")
+            event.listen(connection, "before_cursor_execute", only_select)
+            try:
+                with Session(bind=connection, autoflush=False, expire_on_commit=False) as db:
+                    protected = [tuple(db.execute(query).one()) for query in (protect_run, protect_approval)]
+                    run, original = db.get(AgentRun, 61), db.get(AgentApproval, 15)
+                    assert (original.run_id, original.node_run_id, original.status) == (61, 413, "approved")
+                    assert original.decided_by_user_id == run.user_id
+&gt;                   assert original.decided_at &gt; run.created_at
+E                   assert datetime.datetime(2026, 11, 13, 5, 41, 8) &gt; datetime.datetime(2026, 11, 13, 12, 35, 19)
+E                    +  where datetime.datetime(2026, 11, 13, 5, 41, 8) = &lt;core.db.model_defs.agent_platform.AgentApproval object at 0x000001B2491E3650&gt;.decided_at
+E                    +  and   datetime.datetime(2026, 11, 13, 12, 35, 19) = &lt;core.db.model_defs.agent_platform.AgentRun object at 0x000001B248AD60D0&gt;.created_at
+
+backend\tests\agent_platform\test_generation_confirmation_real_data.py:54: AssertionError</error></testcase><testcase classname="backend.tests.agent_platform.test_generation_confirmation_real_data" name="test_invalid_confirmation_rejected_without_state_or_artifact_changes[extra_answer]" file="backend\tests\agent_platform\test_generation_confirmation_real_data.py" line="192" time="0.001"><error message="failed on setup with &quot;assert datetime.datetime(2026, 11, 13, 5, 41, 8) &gt; datetime.datetime(2026, 11, 13, 12, 35, 19)&#10; +  where datetime.datetime(2026, 11, 13, 5, 41, 8) = &lt;core.db.model_defs.agent_platform.AgentApproval object at 0x000001B2491E3650&gt;.decided_at&#10; +  and   datetime.datetime(2026, 11, 13, 12, 35, 19) = &lt;core.db.model_defs.agent_platform.AgentRun object at 0x000001B248AD60D0&gt;.created_at&quot;">real = {'current_cases_after': [{'content': {'coverage_ids': ['COV-0001'], 'module': '学习会话与环节管理', 'preconditions': [], 'prior...'current_input': {'batch_case_limit': 5, 'case_budget': 70, 'disable_result_cache': True, 'requirement': '', ...}, ...}
+
+    @pytest.fixture(scope="module")
+    def actual_pending_source(real):
+        """Run61创建时AP15尚未决定，按真实时间冻结来源而非从Run63删批准。"""
+        archived = Path(__file__).resolve().parents[3] / "output/qa/2026-11-13-agent-cost-rerun/round-02/resume/before-approval.json"
+        pause = json.loads(archived.read_text(encoding="utf-8-sig"))
+        commands = []
+    
+        def only_select(connection, cursor, statement, parameters, context, executemany):
+            command = statement.lstrip().split(None, 1)[0].upper()
+            assert command == "SELECT", f"人工确认CPU验证禁止线上数据库写入：{command}"
+            commands.append(command)
+    
+        protect_run = text("SELECT SHA2(CAST(input_payload AS CHAR),256), SHA2(CAST(run_context AS CHAR),256),"
+                           " SHA2(CAST(output_payload AS CHAR),256),status FROM agent_runs WHERE id=61")
+        protect_approval = text("SELECT SHA2(CAST(request_payload AS CHAR),256), SHA2(CAST(decision_payload AS CHAR),256),"
+                                " status,decided_at,decided_by_user_id FROM agent_approvals WHERE id=15")
+        with source_engine.connect() as connection:
+            connection.exec_driver_sql("START TRANSACTION READ ONLY")
+            event.listen(connection, "before_cursor_execute", only_select)
+            try:
+                with Session(bind=connection, autoflush=False, expire_on_commit=False) as db:
+                    protected = [tuple(db.execute(query).one()) for query in (protect_run, protect_approval)]
+                    run, original = db.get(AgentRun, 61), db.get(AgentApproval, 15)
+                    assert (original.run_id, original.node_run_id, original.status) == (61, 413, "approved")
+                    assert original.decided_by_user_id == run.user_id
+&gt;                   assert original.decided_at &gt; run.created_at
+E                   assert datetime.datetime(2026, 11, 13, 5, 41, 8) &gt; datetime.datetime(2026, 11, 13, 12, 35, 19)
+E                    +  where datetime.datetime(2026, 11, 13, 5, 41, 8) = &lt;core.db.model_defs.agent_platform.AgentApproval object at 0x000001B2491E3650&gt;.decided_at
+E                    +  and   datetime.datetime(2026, 11, 13, 12, 35, 19) = &lt;core.db.model_defs.agent_platform.AgentRun object at 0x000001B248AD60D0&gt;.created_at
+
+backend\tests\agent_platform\test_generation_confirmation_real_data.py:54: AssertionError</error></testcase><testcase classname="backend.tests.agent_platform.test_generation_confirmation_real_data" name="test_invalid_confirmation_rejected_without_state_or_artifact_changes[approval_node]" file="backend\tests\agent_platform\test_generation_confirmation_real_data.py" line="192" time="0.002"><error message="failed on setup with &quot;assert datetime.datetime(2026, 11, 13, 5, 41, 8) &gt; datetime.datetime(2026, 11, 13, 12, 35, 19)&#10; +  where datetime.datetime(2026, 11, 13, 5, 41, 8) = &lt;core.db.model_defs.agent_platform.AgentApproval object at 0x000001B2491E3650&gt;.decided_at&#10; +  and   datetime.datetime(2026, 11, 13, 12, 35, 19) = &lt;core.db.model_defs.agent_platform.AgentRun object at 0x000001B248AD60D0&gt;.created_at&quot;">real = {'current_cases_after': [{'content': {'coverage_ids': ['COV-0001'], 'module': '学习会话与环节管理', 'preconditions': [], 'prior...'current_input': {'batch_case_limit': 5, 'case_budget': 70, 'disable_result_cache': True, 'requirement': '', ...}, ...}
+
+    @pytest.fixture(scope="module")
+    def actual_pending_source(real):
+        """Run61创建时AP15尚未决定，按真实时间冻结来源而非从Run63删批准。"""
+        archived = Path(__file__).resolve().parents[3] / "output/qa/2026-11-13-agent-cost-rerun/round-02/resume/before-approval.json"
+        pause = json.loads(archived.read_text(encoding="utf-8-sig"))
+        commands = []
+    
+        def only_select(connection, cursor, statement, parameters, context, executemany):
+            command = statement.lstrip().split(None, 1)[0].upper()
+            assert command == "SELECT", f"人工确认CPU验证禁止线上数据库写入：{command}"
+            commands.append(command)
+    
+        protect_run = text("SELECT SHA2(CAST(input_payload AS CHAR),256), SHA2(CAST(run_context AS CHAR),256),"
+                           " SHA2(CAST(output_payload AS CHAR),256),status FROM agent_runs WHERE id=61")
+        protect_approval = text("SELECT SHA2(CAST(request_payload AS CHAR),256), SHA2(CAST(decision_payload AS CHAR),256),"
+                                " status,decided_at,decided_by_user_id FROM agent_approvals WHERE id=15")
+        with source_engine.connect() as connection:
+            connection.exec_driver_sql("START TRANSACTION READ ONLY")
+            event.listen(connection, "before_cursor_execute", only_select)
+            try:
+                with Session(bind=connection, autoflush=False, expire_on_commit=False) as db:
+                    protected = [tuple(db.execute(query).one()) for query in (protect_run, protect_approval)]
+                    run, original = db.get(AgentRun, 61), db.get(AgentApproval, 15)
+                    assert (original.run_id, original.node_run_id, original.status) == (61, 413, "approved")
+                    assert original.decided_by_user_id == run.user_id
+&gt;                   assert original.decided_at &gt; run.created_at
+E                   assert datetime.datetime(2026, 11, 13, 5, 41, 8) &gt; datetime.datetime(2026, 11, 13, 12, 35, 19)
+E                    +  where datetime.datetime(2026, 11, 13, 5, 41, 8) = &lt;core.db.model_defs.agent_platform.AgentApproval object at 0x000001B2491E3650&gt;.decided_at
+E                    +  and   datetime.datetime(2026, 11, 13, 12, 35, 19) = &lt;core.db.model_defs.agent_platform.AgentRun object at 0x000001B248AD60D0&gt;.created_at
+
+backend\tests\agent_platform\test_generation_confirmation_real_data.py:54: AssertionError</error></testcase><testcase classname="backend.tests.agent_platform.test_generation_confirmation_real_data" name="test_same_pending_form_cannot_apply_twice_after_current_state_cas" file="backend\tests\agent_platform\test_generation_confirmation_real_data.py" line="215" time="0.001"><error message="failed on setup with &quot;assert datetime.datetime(2026, 11, 13, 5, 41, 8) &gt; datetime.datetime(2026, 11, 13, 12, 35, 19)&#10; +  where datetime.datetime(2026, 11, 13, 5, 41, 8) = &lt;core.db.model_defs.agent_platform.AgentApproval object at 0x000001B2491E3650&gt;.decided_at&#10; +  and   datetime.datetime(2026, 11, 13, 12, 35, 19) = &lt;core.db.model_defs.agent_platform.AgentRun object at 0x000001B248AD60D0&gt;.created_at&quot;">real = {'current_cases_after': [{'content': {'coverage_ids': ['COV-0001'], 'module': '学习会话与环节管理', 'preconditions': [], 'prior...'current_input': {'batch_case_limit': 5, 'case_budget': 70, 'disable_result_cache': True, 'requirement': '', ...}, ...}
+
+    @pytest.fixture(scope="module")
+    def actual_pending_source(real):
+        """Run61创建时AP15尚未决定，按真实时间冻结来源而非从Run63删批准。"""
+        archived = Path(__file__).resolve().parents[3] / "output/qa/2026-11-13-agent-cost-rerun/round-02/resume/before-approval.json"
+        pause = json.loads(archived.read_text(encoding="utf-8-sig"))
+        commands = []
+    
+        def only_select(connection, cursor, statement, parameters, context, executemany):
+            command = statement.lstrip().split(None, 1)[0].upper()
+            assert command == "SELECT", f"人工确认CPU验证禁止线上数据库写入：{command}"
+            commands.append(command)
+    
+        protect_run = text("SELECT SHA2(CAST(input_payload AS CHAR),256), SHA2(CAST(run_context AS CHAR),256),"
+                           " SHA2(CAST(output_payload AS CHAR),256),status FROM agent_runs WHERE id=61")
+        protect_approval = text("SELECT SHA2(CAST(request_payload AS CHAR),256), SHA2(CAST(decision_payload AS CHAR),256),"
+                                " status,decided_at,decided_by_user_id FROM agent_approvals WHERE id=15")
+        with source_engine.connect() as connection:
+            connection.exec_driver_sql("START TRANSACTION READ ONLY")
+            event.listen(connection, "before_cursor_execute", only_select)
+            try:
+                with Session(bind=connection, autoflush=False, expire_on_commit=False) as db:
+                    protected = [tuple(db.execute(query).one()) for query in (protect_run, protect_approval)]
+                    run, original = db.get(AgentRun, 61), db.get(AgentApproval, 15)
+                    assert (original.run_id, original.node_run_id, original.status) == (61, 413, "approved")
+                    assert original.decided_by_user_id == run.user_id
+&gt;                   assert original.decided_at &gt; run.created_at
+E                   assert datetime.datetime(2026, 11, 13, 5, 41, 8) &gt; datetime.datetime(2026, 11, 13, 12, 35, 19)
+E                    +  where datetime.datetime(2026, 11, 13, 5, 41, 8) = &lt;core.db.model_defs.agent_platform.AgentApproval object at 0x000001B2491E3650&gt;.decided_at
+E                    +  and   datetime.datetime(2026, 11, 13, 12, 35, 19) = &lt;core.db.model_defs.agent_platform.AgentRun object at 0x000001B248AD60D0&gt;.created_at
+
+backend\tests\agent_platform\test_generation_confirmation_real_data.py:54: AssertionError</error></testcase></testsuite></testsuites>

@@ -1,0 +1,17 @@
+*** Begin Patch
+*** Update File: backend/modules/agent_platform/runtime.py
+@@
+ def _node_input(
+     run: AgentRun,
+     node: WorkflowNode,
+     dependency_outputs: dict[str, dict[str, Any]],
+ ) -> dict[str, Any]:
++    definition = (_execution_contract(run).get("workflow") or {}).get("definition") or {}
++    if definition.get("execution_mode") == "agent_network":
++        # 顶层主 Agent 的领域输入只包含用户任务；执行身份由 ToolExecutionContext 提供。
++        if node.node_type != "agent_network" or node.depends_on or node.input_mapping:
++            raise ValueError("顶层 AgentProgram 不能混入 DAG 依赖或输入映射")
++        return deepcopy(run.input_payload or {})
++
+     if node.input_mapping:
+*** End Patch

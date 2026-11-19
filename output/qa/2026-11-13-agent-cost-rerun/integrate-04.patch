@@ -1,0 +1,44 @@
+--- a/backend/modules/agent_platform/sdk_adapter.py
++++ b/backend/modules/agent_platform/sdk_adapter.py
+@@ -1877,6 +1877,8 @@
+         self._snapshots: dict[str, dict[str, Any]] = {}
+         self._catalog_key = runtime_config.get("state_action_catalog")
+         self._budget_observer = None
++        self._observation_cache_key: str | None = None
++        self._observation_cache: dict[str, Any] | None = None
+ 
+     def bind_budget_observer(self, observer):
+         self._budget_observer = observer
+@@ -1889,11 +1891,32 @@
+                 or not set(catalog).issubset(self._runtime_config.get("tool_keys") or [])):
+             raise ValueError("当前行动目录缺失或包含未绑定的工具及无效目标范围")
+ 
++    def _observation_identity(self) -> str:
++        from .action_journal import action_state_hash
++
++        context = self._context
++        # 原始状态、输入、产物及已确认口径的完整内容决定观察；不能用对象地址或领域摘要代替。
++        return action_state_hash({
++            "scope": {"user_id": context.user_id, "project_id": context.project_id,
++                      "run_id": context.run_id, "node_key": context.node_key},
++            "run_input": context.run_input, "action_input": context.action_input,
++            "action_state": context.action_state, "artifacts": context.artifacts,
++            "confirmed_conflicts": context.confirmed_conflicts,
++        })
++
+     def observe(self) -> dict[str, Any]:
++        identity = self._observation_identity()
++        if identity == self._observation_cache_key and self._observation_cache is not None:
++            return deepcopy(self._observation_cache)
++        # 首次及任何完整输入变化均执行原观察器的来源和领域校验；校验失败不能命中旧缓存。
+         observation = self._observer(self._context, {})
+         if not isinstance(observation, dict):
+             raise TypeError("持久 Agent 的状态观察必须是对象")
+         self._validate_action_catalog(observation)
++        if self._observation_identity() != identity:
++            raise ValueError("状态观察器不得修改其输入、领域状态、产物或已确认口径")
++        self._observation_cache_key = identity
++        self._observation_cache = deepcopy(observation)
+         return observation
+ 
+     def available_tool_names(self) -> set[str]:

@@ -1,0 +1,207 @@
+--- a/backend/modules/agent_platform/autonomous_budget.py
++++ b/backend/modules/agent_platform/autonomous_budget.py
+@@ -212,6 +212,8 @@
+         self._reported = reported
+         self._on_change = on_change
+         self._lock = Lock()
++        # 只等待当前事件循环内的真实结算；未知请求的预留不属于可释放容量。
++        self._capacity_changed = asyncio.Event()
+         self._require_budget(self._charged)
+ 
+     def _persist(self) -> None:
+@@ -226,25 +228,56 @@
+         if exceeded:
+             raise AgentExecutionBudgetExceeded("本轮父子 Agent 共享预算耗尽: " + ", ".join(exceeded))
+ 
++    def _notify_capacity_changed(self) -> None:
++        # 替换通知世代再唤醒，避免结算恰好发生在登记等待与 await 之间时丢通知。
++        with self._lock:
++            previous = self._capacity_changed
++            self._capacity_changed = asyncio.Event()
++        previous.set()
++
++    async def _reserve_request(
++        self, context: RunContextWrapper[Any], reservation: dict[str, int],
++        *, before_admission: Callable[[], None] | None = None,
++    ) -> None:
++        while True:
++            # 预算等待后必须重新核对请求权限及执行权；检查失败不记一次尝试。
++            if before_admission is not None:
++                before_admission()
++            with self._lock:
++                if context in self._pending:
++                    raise RuntimeError("同一模型上下文存在尚未结算的请求")
++                self._require_budget(self._charged)
++                self._require_budget(reservation)
++                projected = {name: self._charged[name] + reservation[name] for name in _BUDGET_KEYS}
++                if any(projected[name] > self._limits[name] for name in _BUDGET_KEYS):
++                    # 次数是累计消耗，结算不能补回；没有在途请求也没有容量可等待。
++                    if (not self._pending
++                            or projected["attempted_requests"] > self._limits["attempted_requests"]):
++                        self._require_budget(projected)
++                    changed = self._capacity_changed
++                else:
++                    self._charged = projected
++                    self._pending[context] = reservation
++                    changed = None
++            if changed is None:
++                # 发送之前持久预留；失败时仍不允许模型请求继续。
++                self._persist()
++                return
++            # 不持同步锁等待；现有硬超时、取消及失租监督会取消此等待。
++            await changed.wait()
++
+     async def on_llm_start(
+         self,
+         context: RunContextWrapper[Any],
+         agent: Agent[Any],
+         system_prompt: str | None,
+         input_items: list[Any],
++        *, before_admission: Callable[[], None] | None = None,
+     ) -> None:
+         reservation = model_request_reservation(
+             agent=agent, system_prompt=system_prompt, input_items=input_items,
+         )
+-        with self._lock:
+-            if context in self._pending:
+-                raise RuntimeError("同一模型上下文存在尚未结算的请求")
+-            projected = {name: self._charged[name] + reservation[name] for name in _BUDGET_KEYS}
+-            self._require_budget(projected)
+-            self._charged = projected
+-            self._pending[context] = reservation
+-        # 在发送请求前保存预留；持久化失败时不得继续请求模型。
+-        self._persist()
++        await self._reserve_request(context, reservation, before_admission=before_admission)
+ 
+     def settle_request(self, context: RunContextWrapper[Any], usage: Usage | None) -> None:
+         """仅按当前响应的增量结算；共享 context.usage 已含子调用，不能重复累加。"""
+@@ -274,6 +307,7 @@
+             }
+             self._completed += 1
+         self._persist()
++        self._notify_capacity_changed()
+         self._require_budget(self._charged)
+ 
+     def interrupt_requests(self, *, execution_context: Any) -> None:
+@@ -285,6 +319,8 @@
+             self._interrupted += len(contexts)
+         if contexts:
+             self._persist()
++            # 未知用量仍占额度，但等待者须知道已没有这批在途响应可等待。
++            self._notify_capacity_changed()
+ 
+     async def on_llm_end(
+         self,
+@@ -344,6 +380,7 @@
+     async def on_llm_start(
+         self, context: RunContextWrapper[Any], agent: Agent[Any],
+         system_prompt: str | None, input_items: list[Any],
++        *, before_admission: Callable[[], None] | None = None,
+     ) -> None:
+         async with self._start_lock:
+             if self._attempted_requests >= self._limit:
+@@ -351,7 +388,9 @@
+                     f"专业会话及咨询子树请求预算耗尽: attempted_requests={self._attempted_requests}/{self._limit}"
+                 )
+             # 父级准入先成功才记局部次数；局部拒绝也不能占用阶段额度。
+-            await self._parent.on_llm_start(context, agent, system_prompt, input_items)
++            await self._parent.on_llm_start(
++                context, agent, system_prompt, input_items, before_admission=before_admission,
++            )
+             self._attempted_requests += 1
+ 
+     def settle_request(self, context: RunContextWrapper[Any], usage: Usage | None) -> None:
+--- a/backend/modules/agent_platform/registry.py
++++ b/backend/modules/agent_platform/registry.py
+@@ -53,7 +53,7 @@
+                             alternate_output_validators: list[dict[str, Callable] | None] | None = None,
+                             return_subtree_failures: bool = False) -> list[Any]:
+         """并发等待独立专家；状态验收、回执和数据库操作仍在同一事件循环串行完成。"""
+-        from .autonomous_budget import AgentSubtreeRequestBudgetExceeded
++        from .autonomous_budget import AgentExecutionBudgetExceeded, AgentSubtreeRequestBudgetExceeded
+ 
+         if self.invoke_agent is None or not 1 <= self.agent_concurrency <= 16:
+             raise ValueError("专业批次缺少调用入口或有效并发额度")
+@@ -66,8 +66,16 @@
+         class _SubtreeCancelled(Exception):
+             """把子 Agent 主动取消从 TaskGroup 的正常取消语义中提升出来。"""
+ 
+-        async def invoke(item, alternative, candidate):
++        budget_failure: AgentExecutionBudgetExceeded | None = None
++        not_started_indexes: set[int] = set()
++
++        async def invoke(item, alternative, candidate, position):
++            nonlocal budget_failure
+             async with semaphore:
++                # 全局预算已确定拒绝后，不再启动本批排队中的专业会话。
++                if budget_failure is not None:
++                    not_started_indexes.add(position)
++                    return budget_failure
+                 self.require_request_allowed()
+                 try:
+                     return await self.invoke_agent(
+@@ -80,6 +88,14 @@
+                         self.record_failure(error)
+                         raise
+                     # 局部失败不取消其他已经准入的独立任务，成功回执由 SDK 原入口保存。
++                    return error
++                except AgentExecutionBudgetExceeded as error:
++                    if self.stop_on_failure:
++                        self.record_failure(error)
++                        raise
++                    # 拒绝新增请求不取消已经付费的兄弟；让真实响应及验收回执收敛。
++                    if budget_failure is None:
++                        budget_failure = error
+                     return error
+                 except asyncio.CancelledError as error:
+                     self.record_failure(error)
+@@ -110,7 +126,7 @@
+                         alternate: dict[str, Callable] | None,
+                         validator: Callable | None,
+                     ) -> None:
+-                        outputs[position] = await invoke(current, alternate, validator)
++                        outputs[position] = await invoke(current, alternate, validator, position)
+ 
+                     group.create_task(collect(index, item, alternative, candidate))
+         except BaseExceptionGroup as error_group:
+@@ -132,12 +148,14 @@
+         transport_failures = [
+             index for index in failures if model_transport_failure_kind(outputs[index]) is not None
+         ]
+-        if transport_failures or (failures and not return_subtree_failures):
+-            # return_subtree_failures 只允许领域处理局部额度耗尽，连接故障仍交给运行时。
+-            error = outputs[(transport_failures or failures)[0]]
++        if budget_failure is not None or transport_failures or (failures and not return_subtree_failures):
++            # 全局预算拒绝不能作为领域成功返回；仅在已准入兄弟完成后交回运行时。
++            error = budget_failure if budget_failure is not None else outputs[(transport_failures or failures)[0]]
+             error.diagnostic = {
+                 **dict(getattr(error, "diagnostic", None) or {}),
+-                "batch_progress": {"total_count": len(inputs), "failed_indexes": failures,
++                "batch_progress": {"total_count": len(inputs),
++                                   "failed_indexes": [i for i in failures if i not in not_started_indexes],
++                                   "not_started_indexes": sorted(not_started_indexes),
+                                    "validated_indexes": [i for i in range(len(inputs)) if i not in failures]},
+             }
+             raise error
+--- a/backend/modules/agent_platform/request_diagnostics.py
++++ b/backend/modules/agent_platform/request_diagnostics.py
+@@ -216,10 +216,16 @@
+         self.diagnostics, self.budget_hooks = diagnostics, budget_hooks
+ 
+     async def on_llm_start(self, context, agent, system_prompt, input_items) -> None:
+-        context.context.require_request_allowed()
+-        require_model_request_claim(context.context)
++        def before_admission() -> None:
++            context.context.require_request_allowed()
++            require_model_request_claim(context.context)
++
+         if self.budget_hooks is not None:
+-            await self.budget_hooks.on_llm_start(context, agent, system_prompt, input_items)
++            await self.budget_hooks.on_llm_start(
++                context, agent, system_prompt, input_items, before_admission=before_admission,
++            )
++        else:
++            before_admission()
+         self.diagnostics.start(context, agent, system_prompt, input_items)
+ 
+     async def on_llm_end(self, context, agent, response) -> None:

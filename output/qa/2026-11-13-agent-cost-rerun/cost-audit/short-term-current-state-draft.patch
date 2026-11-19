@@ -1,0 +1,33 @@
+--- backend\modules\agent_platform\action_journal.py
++++ backend\modules\agent_platform\action_journal.py
+@@ -201,6 +201,17 @@
+             checkpoint = self._checkpoint(node)
+             return None if checkpoint is None else storage.hydrate_checkpoint_state(self.repo.db, node, checkpoint=checkpoint)
+ 
++    def load_current_state(self, *, state, user_id, project_id):
++        """在原租约和完整内容边界内读取当前状态，避免重复解码同一持久快照。"""
++        with self._transaction() as node:
++            if (self._run.user_id, self._run.project_id) != (user_id, project_id):
++                raise ActionStateConflict("当前短期状态的用户或项目与真实运行不一致")
++            checkpoint = self._checkpoint(node)
++            if (checkpoint is None or not isinstance(state, dict)
++                    or action_state_hash(state) != checkpoint["state_hash"]):
++                raise ActionStateConflict("当前短期状态与持久检查点完整内容不一致")
++            return deepcopy(state)
++
+     def load(self):
+         """明确的完整审计视图；模型请求和预算热路径不得调用。"""
+         with self._transaction() as node:
+--- backend\modules\agent_platform\context_agent_tools.py
++++ backend\modules\agent_platform\context_agent_tools.py
+@@ -54,7 +54,9 @@
+ 
+         def load_short_term_state() -> dict[str, Any]:
+             if journal is not None:
+-                state = journal.load_state()
++                state = journal.load_current_state(
++                    state=context.action_state, user_id=context.user_id, project_id=context.project_id,
++                )
+                 if not isinstance(state, dict):
+                     raise ValueError("短期上下文缺少已初始化的真实领域状态")
+                 return state

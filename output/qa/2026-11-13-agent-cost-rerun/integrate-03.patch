@@ -1,0 +1,98 @@
+--- a/backend/modules/agent_platform/sdk_adapter.py
++++ b/backend/modules/agent_platform/sdk_adapter.py
+@@ -1838,7 +1838,8 @@
+             allowed = self._state_filter.available_tool_names()
+             if not allowed.issubset({tool.name for tool in tools}):
+                 raise ValueError("当前行动目录与实际注册工具不一致")
+-            # 工具协议固定；合法范围由最新观察声明，执行入口按当前版本强校验。
++            # SDK 注册表继续处理历史调用；传输给模型的协议仅包含本轮合法行动。
++            tools = [tool for tool in tools if tool.name in allowed]
+         # SDK 重置 tool_choice 后，后续轮次可以照常使用当前行动目录。
+         if self._named_tool is not None and kwargs["model_settings"].tool_choice == "auto":
+             tools = [tool for tool in tools if tool.name == self._named_tool]
+--- a/backend/modules/agent_platform/test_generation_agent.py
++++ b/backend/modules/agent_platform/test_generation_agent.py
+@@ -148,11 +148,17 @@
+ 
+     state = _mutable(context, action_key)
+     child = replace(context, action_state=state)
+-    result = await getattr(source, action_key)(child, arguments)
++    await getattr(source, action_key)(child, arguments)
+     state = child.action_state
+     _activate_planning(child, state)
+     _save(context, state)
+-    return result
++    # 当前来源和行动范围由统一观察提供，源行动仅返回实际效果。
++    return {"action": action_key,
++            "source_progress": {kind: {"count": len(state["source"][f"{kind}_records"]),
++                                      "completed": len(state["source"][f"{kind}_records"])
++                                                   - len(_pending(state["source"][f"{kind}_records"]))}
++                                for kind in ("text", "vision", "authority", "planning")},
++            "planning_ready": state["planning"] is not None}
+ 
+ 
+ async def analyze_source(context, arguments):
+@@ -451,6 +457,14 @@
+             "source_version", "draft_version", "plan_version", "support_version",
+             "plan_available", "can_rebuild", "can_finish", "completed",
+         )}
++    available_actions = _available_actions(state, plan, reviewed, generation_preflight)
++    layout = state["generation_layout"]
++    # 只有当前允许重新划分批次时才发送完整布局；执行中的事实路由由按需取证读取。
++    layout_summary = [{"module_index": item["module_index"], "group_count": len(item["groups"]),
++                       "case_budget": sum(group["case_budget"] for group in item["groups"]),
++                       "fact_count": sum(len(group["fact_ids"]) for group in item["groups"]),
++                       "test_design_item_count": sum(len(group["test_design_item_ids"]) for group in item["groups"])}
++                      for item in (layout or [])]
+     return {
+         "goal": {"objective": "依据本次真实来源完成可执行用例；发现上游范围问题时修订规划并重新验收受影响产物",
+                  "source_ref": deepcopy(state["planning"]["goal"]["source_ref"]),
+@@ -463,7 +477,8 @@
+         "authority": {"pending_indexes": _pending(state["authority_records"]), "count": len(state["authority_inputs"]),
+                       "ready": state["effective_facts"] is not None},
+         "generation": {"layout_version": state["layout_version"], "version": state["generation_version"],
+-                       "layout": deepcopy(state["generation_layout"]),
++                       "layout": deepcopy(layout) if "revise_generation_layout" in available_actions else None,
++                       "layout_summary": layout_summary,
+                        "pending_indexes": _pending(state["generation_records"]),
+                        "batches": [{"item_index": index, "batch_id": item["batch"]["batch_id"],
+                                     "module_index": item["batch"]["module_index"], "module_name": item["batch"]["module_name"],
+@@ -482,7 +497,7 @@
+         "problems": issues, "can_finish": bool(reviewed and reviewed["can_finish"] and state["accepted_plan"]),
+         "completed": state["completed"],
+         "delivery": {"ready": state["delivery"] is not None},
+-        "available_actions": _available_actions(state, plan, reviewed, generation_preflight),
++        "available_actions": available_actions,
+     }
+ 
+ 
+--- a/backend/modules/agent_platform/test_generation_planning_agent.py
++++ b/backend/modules/agent_platform/test_generation_planning_agent.py
+@@ -715,7 +715,17 @@
+     if not isinstance(observation, dict):
+         raise TypeError("规划观察必须是对象")
+ 
+-    compact = deepcopy(observation)
++    # 当前可选目标由行动目录提供；裁决仅在 route_gaps 内保留一份完整说明。
++    # 先选择字段再复制，避免把会被投影丢弃的完整来源目录重复复制一遍。
++    omitted = {"route_gaps", "unrouted_modules", "planning_batches", "unsupported_designs",
++               "unresolved_design_selections", "reviewable_designs"}
++    compact = {key: deepcopy(value) for key, value in observation.items() if key not in omitted}
++    compact["planning_batches"] = [
++        {key: deepcopy(batch[key]) for key in ("item_index", "scope_ids", "fact_count", "status",
++                                              "has_support_questions", "unsupported_coverage_intents")}
++        | {"module_candidate_count": len(batch["module_candidates"])}
++        for batch in observation["planning_batches"]
++    ]
+     compact_gaps = []
+     for item in list(observation.get("route_gaps") or []):
+         if not isinstance(item, dict):
+@@ -727,7 +737,7 @@
+                 "decisions": [
+                     {
+                         key: deepcopy(decision[key])
+-                        for key in ("test_design_item_index", "fact_ids", "support_gaps")
++                        for key in ("test_design_item_index", "disposition", "fact_ids", "support_gaps", "reason")
+                         if key in decision
+                     }
+                     for decision in list(review.get("decisions") or [])
