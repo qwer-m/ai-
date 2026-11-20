@@ -76,15 +76,6 @@ body.ui-overhaul-v4 .evaluation-report-summary {
   padding: 8px 10px;
 }
 
-body.ui-overhaul-v4 .automation-eval-card.control-grid-lr .control-field {
-  margin-bottom: 10px !important;
-}
-
-body.ui-overhaul-v4 .automation-eval-card.control-grid-lr .control-field .form-label {
-  font-size: 12px;
-  margin-bottom: 0;
-}
-
 @media (max-width: 1200px) {
   body.ui-overhaul-v4 .evaluation-report-kpi-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));

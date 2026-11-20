@@ -1,13 +1,14 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import timedelta
 from types import SimpleNamespace
 
+from core.db import db_utc_now
 from modules.system_components.services.log_service import LogService
 
 
 def test_agent_events_only_include_entries_after_latest_clear_marker() -> None:
-    marker = datetime.utcnow()
+    marker = db_utc_now()
     event = SimpleNamespace(
         id=7,
         event_type="node_completed",

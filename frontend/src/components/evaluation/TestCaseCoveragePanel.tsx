@@ -1,194 +1,94 @@
-import { Button, Col, Form, Row } from 'react-bootstrap';
-import type {
-  EvaluationHistoryPoint,
-  EvaluationRunRecord,
-  LoadingType,
-  QualityReport,
-  TestEvaluationArtifact,
-} from './state/types';
+import { Nav, Tab } from 'react-bootstrap';
+import { AssertionQualityPanel } from './AssertionQualityPanel';
 import { TestCaseEvaluationReport } from './TestCaseEvaluationReport';
-import { TestCaseFeedbackPanel } from './TestCaseFeedbackPanel';
+import { useEvaluationActions } from './state/useEvaluationActions';
+import type { useEvaluationResources } from './state/useEvaluationResources';
+import './benchmark.css';
 
-type Props = {
-  evalGenerated: string;
-  evalModified: string;
-  setEvalModified: (v: string) => void;
-  evalResult: QualityReport | null;
-  loading: LoadingType;
-  runHistory: EvaluationRunRecord[];
-  baselineText: string;
-  onBaselineChange: (text: string) => void;
-  selectedRunId: number | null;
-  onSelectRunId: (id: number | null) => void;
-  onLoadRunById: (id: number) => void;
-  onFileChange: (file: File | null) => void;
-  uploadedReferenceFilename: string;
-  loadedReferenceFilename: string;
-  onEvaluate: () => void;
-  history: EvaluationHistoryPoint[];
-  projectId: number | null;
-  verifiedEvaluation: TestEvaluationArtifact | null;
-  sourceLoaded: boolean;
-};
+type Props = { resources: ReturnType<typeof useEvaluationResources>; onLog: (message: string) => void };
 
-export function TestCaseCoveragePanel({
-  evalGenerated,
-  evalModified,
-  setEvalModified,
-  evalResult,
-  loading,
-  runHistory,
-  baselineText, onBaselineChange,
-  selectedRunId,
-  onSelectRunId,
-  onLoadRunById,
-  onFileChange,
-  uploadedReferenceFilename,
-  loadedReferenceFilename,
-  onEvaluate,
-  history,
-  projectId,
-  verifiedEvaluation,
-  sourceLoaded,
-}: Props) {
-  const evaluateDisabled = loading === 'eval' || !sourceLoaded;
-  const evaluateLabel = loading === 'eval'
-    ? '评测中...'
-    : '开始评估质量（含召回率/精准率/缺陷分析）';
-
-  return (
-    <div className="col-span-12 evaluation-testcase-stack">
-      <div className="bento-card p-4 ui-section-card evaluation-testcase-card panel-card">
-        <div className="mb-3">
-          <Row className="mb-3">
-            <Col md={6}>
-              <Form.Group controlId="evaluation-generated-cases" className="ui-section-card p-3 h-100">
-                <Form.Label className="small text-muted">生成的测试用例</Form.Label>
-                <Form.Control
-                  as="textarea"
-                  rows={10}
-                  className="input-pro bg-light"
-                  value={evalGenerated}
-                  readOnly
-                />
-              </Form.Group>
-            </Col>
-            <Col md={6}>
-              <Form.Group controlId="evaluation-reference-text" className="ui-section-card p-3 h-100">
-                <Form.Label className="small text-muted">用户修改后的测试用例</Form.Label>
-                <Form.Control
-                  as="textarea"
-                  rows={10}
-                  className="input-pro bg-light"
-                  value={evalModified}
-                  disabled={loading === 'eval'}
-                  onChange={(e) => setEvalModified(e.target.value)}
-                  placeholder="可以直接输入文本..."
-                />
-              </Form.Group>
-            </Col>
-          </Row>
-
-          <Row className="align-items-end">
-            <Col md={6}>
-              <Form.Group controlId="evaluation-source-run" className="ui-section-card p-3 h-100">
-                <Form.Label className="small text-muted">从历史加载</Form.Label>
-                <Form.Select
-                  size="sm"
-                  className="input-pro bg-white"
-                  value={selectedRunId ? String(selectedRunId) : ''}
-                  onChange={(e) => {
-                    const id = Number(e.target.value);
-                    if (id) onLoadRunById(id);
-                    else onSelectRunId(null);
-                  }}
-                >
-                  <option value="">-- 选择历史记录 --</option>
-                  {runHistory.map((h) => {
-                    const rawTitle = ((h.requirement_text || '').split(/[\n|]/)[0]).trim();
-                    const displayTitle = rawTitle.length > 20 ? `${rawTitle.substring(0, 20)}...` : rawTitle;
-                    const hasEvaluation = h.has_evaluation;
-                    return (
-                      <option key={h.run_id} value={h.run_id}>
-                        {displayTitle} ({new Date(h.created_at).toLocaleString()}){hasEvaluation ? '' : ' - 暂无质量评估'}
-                      </option>
-                    );
-                  })}
-                </Form.Select>
-              </Form.Group>
-            </Col>
-            <Col md={6}>
-              <Form.Group controlId="evaluation-reference-file" className="ui-section-card p-3 h-100">
-                <Form.Label className="small text-muted">或上传人工用例文件</Form.Label>
-                <Form.Control
-                  type="file"
-                  size="sm"
-                  className="input-pro"
-                  disabled={loading === 'eval'}
-                  key={uploadedReferenceFilename || 'no-reference-file'}
-                  onChange={(e) => {
-                    const target = e.target as HTMLInputElement;
-                    onFileChange(target.files && target.files.length > 0 ? target.files[0] : null);
-                  }}
-                />
-                <div className="small text-muted mt-1">
-                  支持后端已配置的文本、表格、PDF 和图片解析；文件与上方文本互斥。
-                </div>
-                {uploadedReferenceFilename ? (
-                  <div className="small text-muted mt-1">
-                    当前上传文件：{uploadedReferenceFilename}
-                  </div>
-                ) : null}
-                {loadedReferenceFilename ? (
-                  <div className="small text-muted mt-1">
-                    已从历史加载人工参考内容：{loadedReferenceFilename}
-                  </div>
-                ) : null}
-              </Form.Group>
-            </Col>
-          </Row>
-          <Form.Group controlId="evaluation-baseline-groups">
-            <Form.Label className="small">正文核对清单（可选，每行一组）</Form.Label>
-            <Form.Control as="textarea" rows={2} value={baselineText} disabled={loading === 'eval'}
-              placeholder="留空时由评审核对完整正文并分组"
-              onChange={e => onBaselineChange(e.target.value)} />
-          </Form.Group>
-        </div>
-
-      </div>
-
-      <div className="evaluation-testcase-action-row d-flex flex-column flex-md-row flex-wrap gap-2">
-        <Button className="btn-pro-primary flex-fill panel-card-primary-action" disabled={evaluateDisabled}
-          aria-describedby="evaluation-submit-help" onClick={onEvaluate}>
-          {evaluateLabel}
-        </Button>
-      </div>
-      <p className="small text-muted mb-0" id="evaluation-submit-help" role="status">
-        {loading === 'eval' ? '评测正在执行，请等待结果。'
-          : !sourceLoaded ? '请先从历史记录加载当前项目的生成用例。'
-            : '填写人工定稿用例或上传文件后进行对比；输入文本与上传文件互斥。'}
-      </p>
-
-      {evalResult ? (
-        <div className="evaluation-testcase-report-wrap">
-          <TestCaseEvaluationReport
-            evalResult={evalResult}
-            history={history}
-          />
-          {verifiedEvaluation && projectId ? (
-            <TestCaseFeedbackPanel
-              key={`${projectId}-${verifiedEvaluation.source_run_id}-${verifiedEvaluation.evaluation_run_id}`}
-              projectId={projectId}
-              sourceRunId={verifiedEvaluation.source_run_id}
-              evaluationRunId={verifiedEvaluation.evaluation_run_id}
-            />
-          ) : (
-            <p className="small text-muted mt-3" role="status">
-              当前报告仅为本地展示草稿。请从服务器加载对应生成记录后再确认项目反馈。
-            </p>
-          )}
-        </div>
-      ) : null}
+export function TestCaseCoveragePanel({ resources: r, onLog }: Props) {
+  const { document, source, bound } = r;
+  const a = useEvaluationActions(source, onLog);
+  const reference = a.draft;
+  const ready = bound && Boolean(reference.file || reference.text.trim());
+  const archived = a.artifact ?? null;
+  const report = bound && !a.busy ? archived : null;
+  return <main className="benchmark workbench-shell" aria-label="测试用例质量评估">
+    <div className="benchmark-materials">
+      <section className="benchmark-card ui-section-card">
+        <h3>需求文档</h3>
+        <label htmlFor="benchmark-document">已上传的需求</label>
+        <select id="benchmark-document" className="form-select" value={document?.id ?? ''}
+          disabled={a.busy || r.uploading || !r.documents.length} onChange={e => r.bind(Number(e.target.value))}>
+          {!document && <option value="">请选择需求文档</option>}
+          {r.documents.map(doc => <option value={doc.id} key={doc.id}>{doc.filename} · #{doc.id}</option>)}
+        </select>
+        <label htmlFor="benchmark-upload">上传需求文档</label>
+        <input id="benchmark-upload" type="file" className="form-control form-control-sm" disabled={a.busy || r.uploading}
+          onChange={e => { const file = e.target.files?.[0]; e.target.value = ''; if (file) void r.upload(file); }} />
+        {r.uploading && <p role="status">正在上传需求文档…</p>}
+        {document?.parse_status === 'failed' && <p role="alert">{document.parse_error || '需求解析失败'}</p>}
+        {document && ['pending','parsing'].includes(document.parse_status) && <p role="status">正在解析需求文档…</p>}
+        {r.documentError && <p role="alert">{r.documentError} <button className="btn btn-link btn-sm" onClick={r.retryDocuments}>重试读取</button></p>}
+      </section>
+      <section className="benchmark-card ui-section-card">
+        <h3>生成的测试用例</h3>
+        {bound && source ? <>
+          <p className="benchmark-count">{source.cases.length} <small>条用例</small></p>
+          <div className="benchmark-cases">{source.cases.map(c => <details key={c.case_id}>
+            <summary>{c.case_id} · {c.title}</summary>
+            <div className="small py-2"><div>{c.module} · {c.priority}</div>
+              {c.preconditions.length > 0 && <div>前置条件：{c.preconditions.join('；')}</div>}
+              {c.test_input && <div>测试输入：{c.test_input}</div>}
+              <ol>{c.steps.map((step, i) => <li key={i}>{step.action}<div>预期：{step.expected}</div></li>)}</ol>
+            </div>
+          </details>)}</div></> : <p className="text-muted">关联生成 Run 后显示已交付的用例。</p>}
+      </section>
+      <section className="benchmark-card ui-section-card benchmark-reference">
+        <h3>人工修改后的测试用例</h3>
+        <label htmlFor="benchmark-reference-file">上传人工修改稿</label>
+        <input key={reference.file?.name ?? 'empty'} id="benchmark-reference-file" type="file" className="form-control"
+          disabled={a.busy || !bound} onChange={e => a.edit({ file: e.target.files?.[0] ?? null, text: '' })} />
+        {bound && <p className="small text-muted">{reference.file?.name || archived?.upload.filename || '可上传人工执行后的 Excel，保留用例行与 SKIP 标记。'}</p>}
+        <form className="benchmark-binding" onSubmit={e => { e.preventDefault(); r.applyRun(); }}>
+          <label htmlFor="benchmark-run">生成 Run ID</label>
+          <input id="benchmark-run" className="form-control" inputMode="numeric" autoComplete="off" value={r.runText}
+            aria-invalid={Boolean(r.runError)} aria-describedby={bound ? undefined : 'benchmark-run-status'} disabled={!document || a.busy || r.uploading || document.parse_status !== 'success'}
+            onChange={e => r.changeRunText(e.target.value)} />
+          <button type="submit" className="btn btn-primary" disabled={a.busy || r.uploading || document?.parse_status !== 'success' || r.loading}>载入 Run</button>
+          <button type="button" className="btn btn-outline-secondary" disabled={a.busy || r.uploading || document?.parse_status !== 'success' || r.loading}
+            onClick={() => document && r.bind(document.id)}>使用最新 Run</button>
+          {!bound && <div id="benchmark-run-status" role="status" className={r.runError ? 'text-danger' : 'text-muted'}>
+            {r.runError || (r.loading ? '正在核对运行与需求版本…' :
+              r.runText ? '请载入此 Run 以核对来源。' : document?.parse_status === 'success' ? '该文档暂无已交付用例的生成 Run。' : '请先选择已解析的需求文档。')}
+          </div>}
+        </form>
+      </section>
     </div>
-  );
+    <section className="benchmark-card ui-section-card benchmark-criteria" aria-label="评测报告">
+      <Tab.Container id="benchmark-report" defaultActiveKey="coverage" transition={false}>
+        <div className="benchmark-report-toolbar">
+          <Nav className="benchmark-report-tabs" aria-label="评测维度">
+            <Nav.Item><Nav.Link as="button" type="button" eventKey="coverage">覆盖率测试</Nav.Link></Nav.Item>
+            <Nav.Item><Nav.Link as="button" type="button" eventKey="assertions">断言质量</Nav.Link></Nav.Item>
+          </Nav>
+          <button className="btn btn-primary btn-sm" disabled={!ready || a.busy} onClick={() => void a.evaluate()}>
+            {a.busy ? '正在评测…' : '评估覆盖率与断言质量'}
+          </button>
+        </div>
+        {a.busy && a.evaluationId && <p role="status">评测 Run #{a.evaluationId}</p>}
+        {a.error && <p role="alert" className="text-danger">{a.error}</p>}
+        <Tab.Content>
+          <Tab.Pane eventKey="coverage">
+            <TestCaseEvaluationReport key={report?.evaluation_run_id ?? 'pending'}
+              artifact={report} projectId={source?.project_id ?? null} />
+          </Tab.Pane>
+          <Tab.Pane eventKey="assertions">
+            <AssertionQualityPanel source={bound ? source : null} artifact={report} />
+          </Tab.Pane>
+        </Tab.Content>
+      </Tab.Container>
+    </section>
+  </main>;
 }

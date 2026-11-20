@@ -3,7 +3,7 @@
 
 职责：
 1. 初始化 FastAPI 应用与全局资源（数据库、Redis、AI 配置）。
-2. 注册中间件与业务路由（认证、项目、知识库、测试生成、UI 自动化等）。
+2. 注册中间件与业务路由（认证、项目、知识库、Agent 测试生成、测试用例质量评估等）。
 3. 提供健康检查与根路径重定向等基础接口。
 """
 
@@ -34,27 +34,18 @@ from core.settings.config import settings
 from core.ai.ai_client import ai_client
 from core.settings.config_manager import config_manager
 from core.cache_layer.redis_pool import redis_pool
-from core.cache_layer.browser_pool import browser_pool
 
 # 业务模块路由
 from modules.domain.auth import router as auth_router
-from modules.testing.standard_api import router as standard_api_router
-from routers.automation.ui_test_cases import router as ui_test_cases_router
 
 # 当前重构后路由
 from routers.system.projects import router as projects_router
-from routers.automation.ui_automation import router as ui_auto_router
-from routers.automation.api_automation import router as api_auto_router
 from routers.system.common import router as common_router
 from routers.system.tasks import router as tasks_router
 from routers.system.logs import router as logs_router
 from routers.system.config import router as config_router
 from routers.orchestration.evaluation import router as evaluation_router
 from routers.orchestration.agents import router as agents_router
-from routers.rag.rag_datasets import router as rag_datasets_router
-from routers.rag.rag_runs import router as rag_runs_router
-from routers.rag.rag_eval import router as rag_eval_router
-from routers.rag.rag_candidates import router as rag_candidates_router
 
 from contextlib import asynccontextmanager
 from fastapi.middleware.cors import CORSMiddleware
@@ -71,7 +62,7 @@ async def lifespan(app: FastAPI):
     """
     应用生命周期管理：
     1. 启动：初始化 Redis、检查 MySQL、记录系统日志、加载 AI 激活配置。
-    2. 关闭：释放浏览器池等全局资源。
+    2. 关闭：记录应用关闭状态。
     """
     # 启动阶段：初始化共享资源
     app.state.redis = redis_pool
@@ -121,32 +112,19 @@ async def lifespan(app: FastAPI):
     yield
     
     # 关闭阶段：清理资源
-    # 关闭全局浏览器池
-    if browser_pool:
-        if browser_pool.playwright:
-             await browser_pool.playwright.stop()
-    
     print("Application shutdown: Cleaning up resources... (应用关闭: 正在清理资源...)")
 
 app = FastAPI(title="AI Test Platform", lifespan=lifespan)
 
 # 挂载业务路由
 app.include_router(auth_router, prefix="/api")
-app.include_router(standard_api_router, prefix="/api")
-app.include_router(ui_test_cases_router, prefix="/api")
 app.include_router(projects_router, prefix="/api")
-app.include_router(ui_auto_router, prefix="/api")
-app.include_router(api_auto_router, prefix="/api")
 app.include_router(common_router, prefix="/api")
 app.include_router(tasks_router, prefix="/api")
 app.include_router(logs_router, prefix="/api")
 app.include_router(config_router, prefix="/api")
 app.include_router(evaluation_router, prefix="/api")
 app.include_router(agents_router, prefix="/api")
-app.include_router(rag_datasets_router, prefix="/api")
-app.include_router(rag_runs_router, prefix="/api")
-app.include_router(rag_eval_router, prefix="/api")
-app.include_router(rag_candidates_router, prefix="/api")
 
 from redis import Redis
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import argparse
 from copy import deepcopy
-from datetime import datetime, timedelta
+from datetime import timedelta
 import json
 from pathlib import Path
 import sys
@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 from sqlalchemy import text
 
+from core.db import db_utc_now
 from core.db.database import SessionLocal
 from core.db.model_defs import AgentNodeRun, AgentRun, AgentRunEvent, AgentWorkflowDefinition
 from modules.agent_platform.lifecycle import RunLeaseLost, new_claim_token
@@ -39,7 +40,7 @@ def verify_terminal_claim(
         active.finished_at = None
         active.current_node_key = active_node.node_key
         active.claim_token = new_claim_token() if claim_state == "replaced" else claimed_token
-        active.lease_expires_at = datetime.utcnow() + timedelta(
+        active.lease_expires_at = db_utc_now() + timedelta(
             seconds=-1 if claim_state == "expired" else 600,
         )
         if terminal == "failure":

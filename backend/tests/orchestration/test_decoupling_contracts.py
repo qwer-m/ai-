@@ -266,14 +266,19 @@ def test_obsolete_generation_chain_is_removed() -> None:
     assert all(name not in config_content for name in obsolete_settings)
 
 
-def test_standard_api_request_does_not_use_diagnostic_route() -> None:
+def test_retired_feature_routes_are_not_mounted() -> None:
     backend_root = Path(__file__).resolve().parents[2]
     main_content = _read_backend_file("main.py")
-    standard_api_content = _read_backend_file("modules/testing/standard_api.py")
 
     assert not (backend_root / "routers/system/diagnostics/debug.py").exists()
     assert "debug_router" not in main_content
-    assert '@router.post("/request")' in standard_api_content
+    assert not (backend_root / "modules/testing/standard_api.py").exists()
+    assert "routers.automation" not in main_content
+    assert "routers.rag" not in main_content
+    evaluation_content = _read_backend_file("routers/orchestration/evaluation_execute_routes.py")
+    assert "evaluate-test-cases" in evaluation_content
+    assert "evaluate-ui-automation" not in evaluation_content
+    assert "evaluate-api-test" not in evaluation_content
     assert "ENABLE_DIAGNOSTIC_ROUTES" not in _read_backend_file("core/settings/config.py")
 
 

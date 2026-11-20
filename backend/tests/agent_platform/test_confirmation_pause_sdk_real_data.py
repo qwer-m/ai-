@@ -2,7 +2,7 @@
 
 import asyncio
 from copy import deepcopy
-from datetime import datetime, timedelta
+from datetime import timedelta
 import gzip
 import json
 from pathlib import Path
@@ -18,6 +18,7 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
+from core.db import db_utc_now
 from core.db.model_defs import (AgentRun, AgentNodeRun, AgentRunEvent, AgentArtifactBlob,
     AgentJournalBranch, AgentActionReceiptRecord, AgentValidatedCallRecord)
 from modules.agent_platform.action_journal import AgentActionJournal, action_state_hash
@@ -63,7 +64,7 @@ def resource(actual, monkeypatch):
     with Session(engine, autoflush=False, expire_on_commit=False) as db:
         claim = new_claim_token()
         run = AgentRun(**deepcopy(actual["run"]), status="running", claim_token=claim,
-            lease_expires_at=datetime.utcnow() + timedelta(hours=1))
+            lease_expires_at=db_utc_now() + timedelta(hours=1))
         node = AgentNodeRun(id=447, run_id=82, node_key="agent_network", node_type="agent_network",
             status="running", attempt=1, input_payload=deepcopy(run.input_payload), output_payload={}, sdk_state={})
         db.add_all([run, node])

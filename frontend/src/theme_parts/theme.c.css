@@ -139,24 +139,6 @@ body.theme-dark.ui-overhaul-v4 .evaluation-report-defect-group,
 body.theme-dark.ui-overhaul-v4 .evaluation-report-summary,
 body.theme-dark.ui-overhaul-v4 .api-automation-shell .api-automation-card,
 body.theme-dark.ui-overhaul-v4 .api-automation-shell .api-automation-card .bg-light,
-body.theme-dark.ui-overhaul-v4 .rag-console,
-body.theme-dark.ui-overhaul-v4 .rag-console .rag-console-surface,
-body.theme-dark.ui-overhaul-v4 .rag-console .rag-console-panel,
-body.theme-dark.ui-overhaul-v4 .rag-console .rag-console-advanced,
-body.theme-dark.ui-overhaul-v4 .rag-console .rag-console-rewrite-box,
-body.theme-dark.ui-overhaul-v4 .rag-console .rag-console-movement-card,
-body.theme-dark.ui-overhaul-v4 .rag-console .rag-console-score-card,
-body.theme-dark.ui-overhaul-v4 .rag-console .rag-console-cause-card,
-body.theme-dark.ui-overhaul-v4 .rag-console .rag-console-suggestion-card,
-body.theme-dark.ui-overhaul-v4 .rag-console .rag-report-status-card,
-body.theme-dark.ui-overhaul-v4 .rag-console .rag-report-kpi-grid > div,
-body.theme-dark.ui-overhaul-v4 .rag-console .rag-report-check-grid .form-check,
-body.theme-dark.ui-overhaul-v4 .rag-console .rag-console-table-wrap,
-body.theme-dark.ui-overhaul-v4 .rag-console .rag-report-table,
-body.theme-dark.ui-overhaul-v4 .rag-console .rag-report-shell,
-body.theme-dark.ui-overhaul-v4 .rag-console .rag-report-block,
-body.theme-dark.ui-overhaul-v4 .rag-console .rag-report-card,
-body.theme-dark.ui-overhaul-v4 .rag-console .rag-report-subpanel,
 body.theme-dark.ui-overhaul-v4 .dashboard-log-shell,
 body.theme-dark.ui-overhaul-v4 .dashboard-log-header,
 body.theme-dark.ui-overhaul-v4 .dashboard-log-toolbar,
@@ -193,8 +175,7 @@ body.theme-dark .standard-api-shell {
 
 /* Dark mode: dim highlight buttons and active tabs to avoid purple/over-bright accents. */
 body.theme-dark.ui-overhaul-v4 .btn-primary,
-body.theme-dark.ui-overhaul-v4 .btn-pro-primary,
-body.theme-dark.ui-overhaul-v4 .rag-console .rag-console-btn-primary {
+body.theme-dark.ui-overhaul-v4 .btn-pro-primary {
   background: linear-gradient(180deg, #586b8d 0%, #4e607f 100%) !important;
   border: 1px solid #5f7398 !important;
   box-shadow: none !important;
@@ -205,10 +186,7 @@ body.theme-dark.ui-overhaul-v4 .btn-primary:focus,
 body.theme-dark.ui-overhaul-v4 .btn-primary:active,
 body.theme-dark.ui-overhaul-v4 .btn-pro-primary:hover,
 body.theme-dark.ui-overhaul-v4 .btn-pro-primary:focus,
-body.theme-dark.ui-overhaul-v4 .btn-pro-primary:active,
-body.theme-dark.ui-overhaul-v4 .rag-console .rag-console-btn-primary:hover,
-body.theme-dark.ui-overhaul-v4 .rag-console .rag-console-btn-primary:focus,
-body.theme-dark.ui-overhaul-v4 .rag-console .rag-console-btn-primary:active {
+body.theme-dark.ui-overhaul-v4 .btn-pro-primary:active {
   background: linear-gradient(180deg, #63779d 0%, #56698c 100%) !important;
   border-color: #6a80a8 !important;
   box-shadow: none !important;
@@ -243,8 +221,7 @@ body.theme-dark.ui-overhaul-v4 .btn-outline-secondary,
 body.theme-dark.ui-overhaul-v4 .btn-outline-primary,
 body.theme-dark.ui-overhaul-v4 .btn-outline-danger,
 body.theme-dark.ui-overhaul-v4 .btn-outline-warning,
-body.theme-dark.ui-overhaul-v4 .btn-outline-info,
-body.theme-dark.ui-overhaul-v4 .rag-console .rag-console-btn-outline {
+body.theme-dark.ui-overhaul-v4 .btn-outline-info {
   background: #141a22 !important;
   border-color: #2b3440 !important;
   color: #95aaca !important;
@@ -270,10 +247,7 @@ body.theme-dark.ui-overhaul-v4 .btn-check:checked + .btn-outline-secondary,
 body.theme-dark.ui-overhaul-v4 .btn-check:checked + .btn-outline-primary,
 body.theme-dark.ui-overhaul-v4 .btn-check:checked + .btn-outline-danger,
 body.theme-dark.ui-overhaul-v4 .btn-check:checked + .btn-outline-warning,
-body.theme-dark.ui-overhaul-v4 .btn-check:checked + .btn-outline-info,
-body.theme-dark.ui-overhaul-v4 .rag-console .rag-console-btn-outline:hover,
-body.theme-dark.ui-overhaul-v4 .rag-console .rag-console-btn-outline:focus,
-body.theme-dark.ui-overhaul-v4 .rag-console .rag-console-btn-outline:active {
+body.theme-dark.ui-overhaul-v4 .btn-check:checked + .btn-outline-info {
   background: #1a212c !important;
   border-color: #3a4860 !important;
   color: #b6c7df !important;
@@ -356,22 +330,6 @@ body.theme-dark .dashboard-shell .form-select:disabled {
 }
 
 /* RAG readability fallback: override hard-coded dark-slate text on dark surfaces. */
-body.theme-dark .rag-console .rag-console-kv b,
-body.theme-dark .rag-console .rag-console-advanced-title,
-body.theme-dark .rag-console .rag-console-table thead th,
-body.theme-dark .rag-console .rag-console-chunk-block > .rag-console-block-title,
-body.theme-dark .rag-console .rag-report-subtitle,
-body.theme-dark .rag-console .rag-console-right-title,
-body.theme-dark .rag-console .rag-console-panel-title {
-  color: #b9cae1 !important;
-}
-
-body.theme-dark .rag-console .rag-console-flat,
-body.theme-dark .rag-console .rag-console-cause-miss,
-body.theme-dark .rag-console .rag-console-subtitle,
-body.theme-dark .rag-console .rag-console-context {
-  color: #8ea3be !important;
-}
 
 /* Fallback: same neutral card material for dark pages that don't mount ui-overhaul-v4 class. */
 body.theme-dark .ui-section-card,
@@ -382,24 +340,7 @@ body.theme-dark .evaluation-report-panel,
 body.theme-dark .evaluation-report-kpi,
 body.theme-dark .evaluation-report-chart-wrap,
 body.theme-dark .evaluation-report-defect-group,
-body.theme-dark .evaluation-report-summary,
-body.theme-dark .rag-console .rag-console-surface,
-body.theme-dark .rag-console .rag-console-panel,
-body.theme-dark .rag-console .rag-console-advanced,
-body.theme-dark .rag-console .rag-report-shell,
-body.theme-dark .rag-console .rag-report-block,
-body.theme-dark .rag-console .rag-report-card,
-body.theme-dark .rag-console .rag-report-subpanel,
-body.theme-dark .rag-console .rag-report-status-card,
-body.theme-dark .rag-console .rag-console-rewrite-box,
-body.theme-dark .rag-console .rag-console-movement-card,
-body.theme-dark .rag-console .rag-console-score-card,
-body.theme-dark .rag-console .rag-console-cause-card,
-body.theme-dark .rag-console .rag-console-suggestion-card,
-body.theme-dark .rag-console .rag-report-kpi-grid > div,
-body.theme-dark .rag-console .rag-report-check-grid .form-check,
-body.theme-dark .rag-console .rag-console-table-wrap,
-body.theme-dark .rag-console .rag-report-table {
+body.theme-dark .evaluation-report-summary {
   background: linear-gradient(180deg, #1b212a 0%, #151a21 100%) !important;
   background-image: none !important;
   border-color: #232a33 !important;

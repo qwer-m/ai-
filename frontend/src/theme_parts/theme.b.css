@@ -91,8 +91,6 @@ body.ui-overhaul-v4 .dashboard-shell .form-control:focus,
 body.ui-overhaul-v4 .dashboard-shell .form-select:focus,
 body.ui-overhaul-v4 .postman-theme .form-control:focus,
 body.ui-overhaul-v4 .postman-theme .form-select:focus,
-body.ui-overhaul-v4 .rag-console .form-control:focus,
-body.ui-overhaul-v4 .rag-console .form-select:focus,
 body.ui-overhaul-v4 .evaluation-shell .form-control:focus,
 body.ui-overhaul-v4 .evaluation-shell .form-select:focus,
 body.ui-overhaul-v4 .knowledge-base-shell .form-control:focus,
@@ -103,7 +101,6 @@ body.ui-overhaul-v4 .knowledge-base-shell .form-select:focus {
 
 body.ui-overhaul-v4 .dashboard-shell .btn-primary,
 body.ui-overhaul-v4 .postman-theme .btn-primary,
-body.ui-overhaul-v4 .rag-console .btn-primary,
 body.ui-overhaul-v4 .evaluation-shell .btn-primary,
 body.ui-overhaul-v4 .knowledge-base-shell .btn-primary {
     background: linear-gradient(135deg, var(--primary-600), var(--primary-700));
@@ -113,7 +110,6 @@ body.ui-overhaul-v4 .knowledge-base-shell .btn-primary {
 
 body.ui-overhaul-v4 .dashboard-shell .btn-primary:hover,
 body.ui-overhaul-v4 .postman-theme .btn-primary:hover,
-body.ui-overhaul-v4 .rag-console .btn-primary:hover,
 body.ui-overhaul-v4 .evaluation-shell .btn-primary:hover,
 body.ui-overhaul-v4 .knowledge-base-shell .btn-primary:hover {
     background: linear-gradient(135deg, var(--primary-500), var(--primary-600));

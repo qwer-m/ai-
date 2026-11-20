@@ -5,12 +5,12 @@ from __future__ import annotations
 from contextlib import contextmanager
 from copy import deepcopy
 from dataclasses import dataclass
-from datetime import datetime
 import hashlib
 import json
 from typing import Any, Iterator
 
 from sqlalchemy.orm import load_only
+from core.db import db_utc_now
 from core.db.model_defs import AgentNodeRun, AgentRun, AgentActionReceiptRecord, AgentValidatedCallRecord
 
 from .lifecycle import assert_run_claim
@@ -73,7 +73,7 @@ class AgentActionJournal:
                 run = self.repo.get_run_control_for_update(run_id=self.run_id)
                 if run is None:
                     raise LookupError("动作日志对应的运行不存在")
-                assert_run_claim(run, self.expected_claim_token, now=datetime.utcnow())
+                assert_run_claim(run, self.expected_claim_token, now=db_utc_now())
                 node = db.query(AgentNodeRun).options(load_only(
                     AgentNodeRun.id, AgentNodeRun.run_id, AgentNodeRun.status,
                     AgentNodeRun.sdk_state, AgentNodeRun.input_payload,
@@ -82,7 +82,7 @@ class AgentActionJournal:
                     raise ActionStateConflict("动作日志对应的节点不处于执行状态")
                 self._run = run
                 yield node
-                assert_run_claim(run, self.expected_claim_token, now=datetime.utcnow())
+                assert_run_claim(run, self.expected_claim_token, now=db_utc_now())
             db.commit()
         except storage.CheckpointStorageError as error:
             db.rollback()

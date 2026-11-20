@@ -4,12 +4,13 @@ from copy import deepcopy
 from types import SimpleNamespace
 
 import pytest
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 from sqlalchemy import create_engine, select
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import sessionmaker
 
+from core.db import db_utc_now
 from core.db.database import engine
 from core.db.model_defs import AgentApproval, AgentNodeRun, AgentRun, AgentRunDispatch, AgentRunEvent
 from modules.agent_platform import dispatcher
@@ -117,8 +118,8 @@ def _request_delivery(factory, run_id):
 def _make_due(factory, run_id):
     with factory() as db:
         entry = db.query(AgentRunDispatch).filter_by(run_id=run_id).order_by(AgentRunDispatch.generation.desc()).first()
-        entry.next_attempt_at = datetime.utcnow() - timedelta(seconds=1)
-        entry.publish_lease_expires_at = datetime.utcnow() - timedelta(seconds=1)
+        entry.next_attempt_at = db_utc_now() - timedelta(seconds=1)
+        entry.publish_lease_expires_at = db_utc_now() - timedelta(seconds=1)
         db.commit()
 
 

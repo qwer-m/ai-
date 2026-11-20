@@ -1,4 +1,4 @@
-﻿/* 工作台重构 v13：实时日志体验统一 */
+/* 工作台重构 v13：实时日志体验统一 */
 
 body.ui-overhaul-v4 .dashboard-log-shell {
   border-top: 1px solid color-mix(in srgb, var(--fd-border) 90%, transparent) !important;
@@ -132,16 +132,10 @@ body.theme-dark.ui-overhaul-v4 .dashboard-topbar-surface {
 body.theme-dark.ui-overhaul-v4 .dashboard-main-surface,
 body.theme-dark.ui-overhaul-v4 .dashboard-sidebar-surface,
 body.theme-dark.ui-overhaul-v4 .api-automation-shell,
-body.theme-dark.ui-overhaul-v4 .knowledge-base-shell,
+body.theme-dark.ui-overhaul-v4 .workbench-shell,
 body.theme-dark.ui-overhaul-v4 .knowledge-toolbar-card,
 body.theme-dark.ui-overhaul-v4 .knowledge-content-area,
 body.theme-dark.ui-overhaul-v4 .evaluation-shell .ui-section-card,
-body.theme-dark.ui-overhaul-v4 .evaluation-shell .automation-eval-card,
-body.theme-dark.ui-overhaul-v4 .rag-console .rag-console-surface,
-body.theme-dark.ui-overhaul-v4 .rag-console .rag-console-panel,
-body.theme-dark.ui-overhaul-v4 .rag-console .rag-report-block,
-body.theme-dark.ui-overhaul-v4 .rag-console .rag-report-card,
-body.theme-dark.ui-overhaul-v4 .rag-console .rag-report-subpanel,
 body.theme-dark.ui-overhaul-v4 .dashboard-log-shell,
 body.theme-dark.ui-overhaul-v4 .dashboard-log-header,
 body.theme-dark.ui-overhaul-v4 .dashboard-log-toolbar,

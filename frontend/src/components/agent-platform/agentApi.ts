@@ -451,13 +451,14 @@ export const getRequirementDocumentParseStatus = async (
 export const uploadRequirementDocument = async (
   projectId: number,
   file: File,
+  purpose: 'generation' | 'evaluation' = 'generation',
 ): Promise<RequirementDocumentUpload> => {
   const form = new FormData();
   form.append('file', file);
   form.append('project_id', String(projectId));
   form.append('doc_type', 'requirement');
   const response = readObject(
-    await api.upload<unknown>('/api/upload-knowledge', form),
+    await api.upload<unknown>(purpose === 'evaluation' ? '/api/evaluation/requirement' : '/api/upload-knowledge', form),
     '上传需求文档响应',
   );
   return {

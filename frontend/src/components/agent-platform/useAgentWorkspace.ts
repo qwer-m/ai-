@@ -8,7 +8,6 @@ import {
   getActiveAgentRun,
   getAgentCatalog,
   getAgentRun,
-  getAgentRunEvents,
   getAgentRunSummary,
   getAgentRuns,
   getGenerationReuseCandidate,
@@ -18,10 +17,10 @@ import {
   retryAgentRun,
   uploadRequirementDocument,
 } from './agentApi';
+import { rememberRequirement } from './requirementSelection';
 import type {
   AgentCatalog,
   AgentRun,
-  AgentRunEvent,
   GenerationRunInput,
   GenerationReuseCandidate,
   RequirementDocumentOption,
@@ -36,7 +35,7 @@ const TEST_GENERATION_WORKFLOW_KEY = 'test_generation';
 const ACTIVE_RUN_STATUSES: AgentRun['status'][] = ['pending', 'running', 'waiting_approval'];
 
 type WorkspaceRead = 'workspace' | 'documentList' | 'documentStatus' | 'activeRun'
-  | 'runDetail' | 'runSummary' | 'runEvents';
+  | 'runDetail' | 'runSummary';
 
 function latestRequirementDocumentId(documents: RequirementDocumentOption[]): number | null {
   return documents.reduce<number | null>(
@@ -63,7 +62,6 @@ type Options = {
 export function useAgentWorkspace({ projectId, onLog }: Options) {
   const [catalog, setCatalog] = useState<AgentCatalog>({ agents: [], tools: [], workflows: [] });
   const [activeRun, setActiveRun] = useState<AgentRun | null>(null);
-  const [runEvents, setRunEvents] = useState<AgentRunEvent[]>([]);
   const [requirementDocuments, setRequirementDocuments] = useState<RequirementDocumentOption[]>([]);
   const [requirementDocId, setRequirementDocId] = useState<number | null>(null);
   const [caseBudget, setCaseBudget] = useState(20);
@@ -85,8 +83,6 @@ export function useAgentWorkspace({ projectId, onLog }: Options) {
   const activeRunRef = useRef(activeRun);
   const runVersionRef = useRef(0);
   const runRequestRef = useRef(0);
-  const eventCursorRef = useRef(0);
-  const eventRequestRef = useRef(0);
   const submissionRef = useRef<WorkspaceRequestScope | null>(null);
   const runMutationRef = useRef<WorkspaceRequestScope | null>(null);
   const uploadRequestRef = useRef<WorkspaceRequestScope | null>(null);
@@ -122,17 +118,15 @@ export function useAgentWorkspace({ projectId, onLog }: Options) {
     if (requirementDocIdRef.current !== documentId) setReadError('documentStatus', null);
     requirementDocIdRef.current = documentId;
     setRequirementDocId(documentId);
-  }, [setReadError]);
+    if (projectId && documentId) rememberRequirement(projectId, documentId);
+  }, [projectId, setReadError]);
 
   const commitRun = useCallback((scope: WorkspaceRequestScope, run: AgentRun | null) => {
     if (!isCurrentScope(scope) || (run && run.project_id !== scope.projectId)) return false;
     if ((activeRunRef.current?.id ?? null) !== (run?.id ?? null)) {
       runVersionRef.current += 1;
       runRequestRef.current += 1;
-      eventCursorRef.current = 0;
-      eventRequestRef.current += 1;
-      setRunEvents([]);
-      setReadErrors((current) => ({ ...current, runDetail: null, runSummary: null, runEvents: null }));
+      setReadErrors((current) => ({ ...current, runDetail: null, runSummary: null }));
     }
     activeRunRef.current = run;
     setActiveRun(run);
@@ -375,61 +369,6 @@ export function useAgentWorkspace({ projectId, onLog }: Options) {
       if (timer !== undefined) window.clearTimeout(timer);
     };
   }, [activeRun?.id, activeRun?.status, activeRun?.current_node_key, captureScope, isCurrentScope, openRun, projectId, setReadError]);
-
-  // 事件是独立的增量读模型；运行详情只按需刷新，轨迹通过 sequence 游标持续补齐。
-  useEffect(() => {
-    if (!activeRun || activeRun.project_id !== projectId) return;
-    const runId = activeRun.id;
-    const runStatus = activeRun.status;
-    const scope = captureScope({ run: true });
-    const requestId = ++eventRequestRef.current;
-    let stopped = false;
-    let timer: number | undefined;
-    const isCurrent = () => !stopped && requestId === eventRequestRef.current
-      && isCurrentScope(scope) && activeRunRef.current?.status === runStatus;
-    const loadEvents = async () => {
-      if (!isCurrent()) return;
-      try {
-        let hasMore = true;
-        // 每次只发出一个请求；终态也必须读到末页，避免长运行只展示最早的一页。
-        while (hasMore && isCurrent()) {
-          const afterSequence = eventCursorRef.current;
-          const page = await getAgentRunEvents(runId, afterSequence);
-          if (!isCurrent()) return;
-          if (page.after_sequence !== afterSequence
-            || page.items.some((item) => item.run_id !== runId)
-            || page.next_sequence < afterSequence
-            || (page.has_more && page.next_sequence <= afterSequence)) {
-            throw new Error('Agent 运行轨迹游标未推进，无法继续读取');
-          }
-          if (page.items.length > 0) {
-            setRunEvents((current) => {
-              if (!isCurrent()) return current;
-              const bySequence = new Map(current.map((item) => [item.sequence, item]));
-              page.items.forEach((item) => bySequence.set(item.sequence, item));
-              return Array.from(bySequence.values()).sort((left, right) => left.sequence - right.sequence);
-            });
-          }
-          eventCursorRef.current = page.next_sequence;
-          hasMore = page.has_more;
-        }
-        if (isCurrent()) setReadError('runEvents', null);
-      } catch (reason) {
-        if (isCurrent()) {
-          setReadError('runEvents', reason);
-        }
-      } finally {
-        if (isCurrent() && ACTIVE_RUN_STATUSES.includes(runStatus)) {
-          timer = window.setTimeout(() => void loadEvents(), 2000);
-        }
-      }
-    };
-    void loadEvents();
-    return () => {
-      stopped = true;
-      if (timer !== undefined) window.clearTimeout(timer);
-    };
-  }, [activeRun?.id, activeRun?.project_id, activeRun?.status, captureScope, isCurrentScope, projectId, setReadError]);
 
   useEffect(() => {
     if (!projectId || !activeRun || activeRun.project_id !== projectId
@@ -705,7 +644,6 @@ export function useAgentWorkspace({ projectId, onLog }: Options) {
   return {
     catalog,
     activeRun,
-    runEvents,
     requirementDocuments,
     selectedWorkflow,
     requirementDocId,

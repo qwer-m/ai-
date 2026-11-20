@@ -11,6 +11,7 @@ import pytest
 from sqlalchemy import create_engine, event, func, select, text
 from sqlalchemy.orm import Session
 
+from core.db import db_utc_now
 from core.db.database import engine as source_engine
 from core.db.model_defs import (
     AgentActionReceiptRecord, AgentApproval, AgentArtifactBlob, AgentJournalBranch,
@@ -125,7 +126,7 @@ def pending_approval(actual_pending_source):
         claim = new_claim_token()
         context = {**deepcopy(source["frozen_context"]), "artifacts": {"requirement_source": source["source"]}}
         run = AgentRun(**source["metadata"], status="running", claim_token=claim,
-            lease_expires_at=datetime.utcnow() + timedelta(hours=1),
+            lease_expires_at=db_utc_now() + timedelta(hours=1),
             input_payload=deepcopy(source["input"]), run_context=context, output_payload={})
         node = AgentNodeRun(id=source["node_id"], run_id=run.id, node_key="agent_network", node_type="agent_network",
             status="running", attempt=1, input_payload=deepcopy(source["input"]), output_payload={}, sdk_state={})

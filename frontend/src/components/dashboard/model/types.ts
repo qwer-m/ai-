@@ -13,15 +13,8 @@ export type HealthResponse = {
   redis?: { ok: boolean; details?: string; host?: string; port?: number };
 };
 
-export type DashboardNavChild = {
-  key: string;
-  label: string;
-  icon: ReactNode;
-};
-
 export type DashboardNavItem = {
   key: string;
   label: string;
   icon: ReactNode;
-  children?: DashboardNavChild[];
 };

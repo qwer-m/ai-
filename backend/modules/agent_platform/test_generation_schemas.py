@@ -35,7 +35,7 @@ ISSUE_SCHEMA = object_schema({
 })
 STEP_REFS = {"type": "array", "minItems": 1, "uniqueItems": True,
              "items": object_schema({"case_id": TEXT, "step_number": {"type": "integer", "minimum": 1}})}
-REVIEW_SCHEMA = object_schema({
+_FULL_REVIEW_SCHEMA = object_schema({
     "source_checks": {"type": "array", "minItems": 1, "items": object_schema({
         "evidence_id": TEXT,
         "branches": {"type": "array", "minItems": 1, "items": object_schema({
@@ -65,6 +65,21 @@ REVIEW_SCHEMA = object_schema({
             "description": "仅open coverage_gap可显式更正候选修复对象；省略保留当前归属。"},
     }, required=["issue_id", "resolution", "reason", "source_refs"])},
 })
+# 同一独审会话入口按本次输入分别验收全面审查和步骤核对，两类回执不能混交。
+MAX_WITNESS_CLAIMS = 32
+_WITNESS_SCHEMA = object_schema({"witness_checks": {"type": "array", "minItems": 1, "maxItems": MAX_WITNESS_CLAIMS,
+    "items": object_schema({
+        "claim_id": TEXT,
+        "verified": {"type": "array", "items": object_schema({
+            "source_quote": TEXT, "case_id": TEXT,
+            "action_step": {"type": "integer", "minimum": 1},
+            "expected_step": {"type": "integer", "minimum": 1},
+        })},
+        "gaps": {"type": "array", "items": object_schema({"source_quote": TEXT, "missing": TEXT})},
+    })}})
+REVIEW_SCHEMA = object_schema({**_FULL_REVIEW_SCHEMA["properties"], **_WITNESS_SCHEMA["properties"]}, required=[])
+REVIEW_SCHEMA["oneOf"] = [{"required": schema["required"], "maxProperties": len(schema["properties"])}
+                          for schema in (_FULL_REVIEW_SCHEMA, _WITNESS_SCHEMA)]
 GENERATION_RESOLUTION_SCHEMA = object_schema({"completed": {"type": "boolean", "const": True}})
 GENERATION_INPUT_SCHEMA = object_schema({
     "requirement": {"type": "string"}, "requirement_doc_id": {"type": ["integer", "null"], "minimum": 1},

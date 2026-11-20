@@ -1,7 +1,7 @@
 """不可变产物与增量行动日志；运行检查点只保存内容引用和读取游标。"""
 
-from datetime import datetime
 from sqlalchemy import Index
+from core.db import db_utc_now
 from ._shared import Base, Column, DateTime, ForeignKey, Integer, JSON, String, UniqueConstraint
 
 
@@ -17,7 +17,7 @@ class AgentArtifactBlob(Base):
     payload = Column(JSON, nullable=False)
     logical_bytes = Column(Integer, nullable=False)
     stored_bytes = Column(Integer, nullable=False)
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    created_at = Column(DateTime, nullable=False, default=db_utc_now)
 
 
 class AgentJournalBranch(Base):
@@ -32,7 +32,7 @@ class AgentJournalBranch(Base):
     parent_id = Column(String(36), ForeignKey("agent_journal_branches.id"), nullable=True)
     parent_receipt_cursor = Column(Integer, nullable=False, default=0)
     parent_call_cursor = Column(Integer, nullable=False, default=0)
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    created_at = Column(DateTime, nullable=False, default=db_utc_now)
 
 
 class AgentActionReceiptRecord(Base):
@@ -42,7 +42,7 @@ class AgentActionReceiptRecord(Base):
     branch_id = Column(String(36), ForeignKey("agent_journal_branches.id"), nullable=False)
     tool_call_id = Column(String(200), nullable=False)
     record = Column(JSON, nullable=False)
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    created_at = Column(DateTime, nullable=False, default=db_utc_now)
 
 
 class AgentValidatedCallRecord(Base):
@@ -57,4 +57,4 @@ class AgentValidatedCallRecord(Base):
     agent_key = Column(String(120), nullable=False)
     parent_tool_call_id = Column(String(200), nullable=False)
     record = Column(JSON, nullable=False)
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    created_at = Column(DateTime, nullable=False, default=db_utc_now)

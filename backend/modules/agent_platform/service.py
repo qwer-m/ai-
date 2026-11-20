@@ -2,12 +2,12 @@ from __future__ import annotations
 
 from copy import deepcopy
 from dataclasses import dataclass
-from datetime import datetime
 from typing import Any, Callable
 
 from jsonschema import ValidationError, validate
 from sqlalchemy.orm import Session
 
+from core.db import db_utc_now
 from core.ai.ai_client import get_client_for_user
 from core.db.model_defs import (
     AgentApproval,
@@ -310,8 +310,8 @@ def _restore_checkpoint_node(
         output_payload=deepcopy(checkpoint.output_payload or {}),
         sdk_state=_restored_checkpoint_sdk_state(checkpoint, destination_run_id=run_id),
         error_message="" if status == "success" else "从父运行恢复执行检查点",
-        started_at=datetime.utcnow(),
-        finished_at=datetime.utcnow(),
+        started_at=db_utc_now(),
+        finished_at=db_utc_now(),
     )
     from .checkpoint_storage import INPUT_MARKER
 
@@ -885,7 +885,7 @@ class AgentPlatformService:
             return approval, "already_decided"
         if decision.approved and self._start_worker is None:
             raise RuntimeError("Agent Run 未配置后台执行器")
-        decided_at = datetime.utcnow()
+        decided_at = db_utc_now()
         if (approval.request_payload or {}).get("kind") == "source_conflicts":
             if not decision.approved:
                 raise ValueError("待明确事项需逐项填写后完成；放弃运行请使用取消任务")

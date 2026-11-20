@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import timedelta
 from types import SimpleNamespace
 
+from core.db import db_utc_now
 from modules.agent_platform import recovery
 
 
@@ -19,8 +20,8 @@ class _FakeDb:
             status="running",
             task_id="old-task",
             claim_token="old-claim",
-            heartbeat_at=datetime.utcnow() - timedelta(hours=1),
-            lease_expires_at=datetime.utcnow() - timedelta(minutes=1),
+            heartbeat_at=db_utc_now() - timedelta(hours=1),
+            lease_expires_at=db_utc_now() - timedelta(minutes=1),
             error_message="旧错误",
             run_context={},
             finished_at=None,
@@ -115,7 +116,7 @@ def test_recovery_orders_only_run_ids_before_loading_large_json_rows(monkeypatch
 def test_recovery_marks_run_failed_when_global_deadline_has_expired(monkeypatch) -> None:
     db = _FakeDb()
     db.run.run_context = {
-        "deadline_at": (datetime.utcnow() - timedelta(seconds=1)).isoformat()
+        "deadline_at": (db_utc_now() - timedelta(seconds=1)).isoformat()
     }
     repository = _FakeRepository(db)
     dispatched: list[int] = []

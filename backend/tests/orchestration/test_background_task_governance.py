@@ -16,13 +16,6 @@ from modules.orchestration.task_names import TaskName
 
 
 def test_background_task_profiles_are_classified() -> None:
-    profile = get_background_task_profile("rag_eval_run_worker")
-
-    assert profile.category == BackgroundTaskCategory.DURABLE_JOB
-    assert profile.user_visible is True
-    assert profile.durable is True
-    assert profile.status_source == "rag_eval_runs"
-
     agent_profile = get_background_task_profile("agent_run_worker")
     assert agent_profile.category == BackgroundTaskCategory.DURABLE_JOB
     assert agent_profile.durable is True
@@ -33,7 +26,6 @@ def test_background_task_profiles_are_classified() -> None:
     durable = list_background_task_profiles(BackgroundTaskCategory.DURABLE_JOB)
     assert {item.key for item in durable} >= {
         "celery_knowledge_parse",
-        "rag_eval_run_worker",
     }
 
 
@@ -43,7 +35,6 @@ def test_background_task_specs_cover_celery_and_migration_candidates() -> None:
     assert {spec.task_name for spec in celery_specs} == {
         TaskName.PARSE_KNOWLEDGE_DOCUMENT,
         TaskName.AUDIT_KNOWLEDGE_INDEX_CONSISTENCY,
-        TaskName.RUN_RAG_EVAL,
         TaskName.RUN_AGENT_WORKFLOW,
         TaskName.RECOVER_EXPIRED_AGENT_RUNS,
         TaskName.CLEANUP_LOGS,
@@ -124,46 +115,6 @@ def test_submit_background_task_uses_kind_spec(monkeypatch) -> None:
             "business_type": "knowledge_document",
             "business_id": 7,
             "reason": "offline_parse",
-            "queue": "celery",
-        }
-    ]
-
-
-def test_submit_background_task_supports_rag_eval_run(monkeypatch) -> None:
-    calls: list[dict] = []
-
-    def fake_enqueue_task(task_name, *, kwargs, business_type, business_id, reason, queue):
-        calls.append(
-            {
-                "task_name": task_name,
-                "kwargs": kwargs,
-                "business_type": business_type,
-                "business_id": business_id,
-                "reason": reason,
-                "queue": queue,
-            }
-        )
-        return TaskDispatchResult(task_id="rag-eval-task-11", task_name=task_name.value)
-
-    monkeypatch.setattr(
-        "modules.orchestration.task_dispatcher.enqueue_task",
-        fake_enqueue_task,
-    )
-
-    result = submit_background_task(
-        BackgroundTaskKind.RAG_EVAL_RUN,
-        kwargs={"run_id": 11, "user_id": 5},
-        business_id=11,
-    )
-
-    assert result.task_id == "rag-eval-task-11"
-    assert calls == [
-        {
-            "task_name": TaskName.RUN_RAG_EVAL,
-            "kwargs": {"run_id": 11, "user_id": 5},
-            "business_type": "rag_eval_run",
-            "business_id": 11,
-            "reason": "rag_eval_run_worker",
             "queue": "celery",
         }
     ]

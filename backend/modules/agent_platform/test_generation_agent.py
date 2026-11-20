@@ -3,15 +3,18 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from functools import partial
 import hashlib
 import re
 import unicodedata
 
 from core.db.model_defs import AgentRun
 from .action_journal import action_state_hash
-from .generation_evidence import approval_evidence_id, prepare_generation_evidence, source_image_descriptor
+from .generation_evidence import (approval_evidence_id, prepare_generation_evidence,
+                                  quote_presentation as _quote_presentation, source_image_descriptor)
 from .generation_review_contract import (compile_review_checks, required_case_scope_ids,
                                          required_review_source_ids, validate_review_checks)
+from .generation_review_witnesses import apply_witness_gaps, witness_batches, witness_gaps, witness_review_input
 from .output_repair import OutputValidationError
 from .test_generation_schemas import COVERAGE_ID_PATTERN, MAX_COVERAGE_ITEMS
 from .sources import SourceSnapshot, assert_same_source, persisted_source_snapshot
@@ -50,32 +53,6 @@ def _strings(value, name, *, empty=True):
 def _presentation(text):
     """只归一化字符表示和空白，不删除条件、否定词或改写业务语义。"""
     return re.sub(r"\s+", " ", unicodedata.normalize("NFKC", text)).strip()
-
-
-def _east_asian_letter(character):
-    """识别无需空格分词的汉字、假名及部首；不吞掉韩文或西文词界。"""
-    name = unicodedata.name(character, "") if character else ""
-    return (name.startswith(("CJK UNIFIED IDEOGRAPH-", "CJK COMPATIBILITY IDEOGRAPH-", "HIRAGANA ", "KATAKANA "))
-            and unicodedata.category(character).startswith("L")) or name.startswith(("CJK RADICAL ", "KANGXI RADICAL "))
-
-
-def _quote_presentation(text):
-    """引用容纳东亚文字的版面空白，保留西文词界、数字分隔和硬段落边界。"""
-    value = unicodedata.normalize("NFKC", text)
-
-    def whitespace(match):
-        gap = match.group(0)
-        if "\f" in gap:
-            return "\f"
-        if "\u2029" in gap or len(re.findall(r"\r\n|[\r\n\u2028]", gap)) > 1:
-            return "\n\n"
-        if "\t" in gap:
-            return "\t"
-        left = value[match.start() - 1] if match.start() else ""
-        right = value[match.end()] if match.end() < len(value) else ""
-        return "" if _east_asian_letter(left) or _east_asian_letter(right) else " "
-
-    return re.sub(r"\s+", whitespace, value).strip()
 
 
 def _digest(state):
@@ -285,6 +262,7 @@ def initialize_generation_state(context, arguments):
     if all(item["kind"] == "image" for item in source["evidence_catalog"]["items"]):
         _error("需求来源仅含图片，请提供可核对的需求正文后再生成")
     state = {"schema_version": 4, "input_sha256": action_state_hash(arguments), **source,
+             "requires_witness_review": True,
              "goal": {"objective": "依据真实原始需求与已批准口径生成可执行用例，并通过独立评审。",
                       "case_budget": budget, "batch_case_limit": limit},
              "coverage_plan": {"version": 0, "items": []},
@@ -842,11 +820,15 @@ def _validate_review(state, payload, output):
     return {"verdict": verdict, **checks, "issues": findings, "issue_resolutions": decisions}
 
 
-def _apply_review(context, payload, output):
+def _apply_review(context, payload, output, *, witness_receipt=None):
     current = _state(context)
     if action_state_hash(_review_input(current)) != action_state_hash(payload):
         raise ValueError("独立评审迟到，当前完整业务快照已经变化")
     normalized = _validate_review(current, payload, output)
+    if normalized["verdict"] == "approved":
+        gaps = witness_gaps(witness_review_input(payload, output), witness_receipt, stop_on_gap=True)
+        if gaps:
+            normalized = _validate_review(current, payload, apply_witness_gaps(output, gaps))
     state, input_hash, failed_cases = deepcopy(current), action_state_hash(payload), set()
     for decision in normalized["issue_resolutions"]:
         issue = state["open_issues"][decision["issue_id"]]
@@ -887,6 +869,8 @@ def _apply_review(context, payload, output):
     state["review"] = {"input_hash": input_hash, "snapshot": {"coverage_version": state["coverage_plan"]["version"],
         "case_versions": {key: record["version"] for key, record in state["cases"]["items"].items()}},
         "result": result, "raw_result": deepcopy(output), "assessed_snapshot_hash": action_state_hash(_review_input(state))}
+    if witness_receipt is not None:
+        state["review"]["witness_receipt"] = deepcopy(witness_receipt)
     if normalized["verdict"] == "needs_human":
         # 独立审查已显式要求人工时沿原暂停链处理，不再花主模型回合重复点确认。
         human = [issue["issue_id"] for issue in _active_issues(state) if issue["status"] == "needs_human"]
@@ -907,11 +891,21 @@ async def request_review(context, arguments):
         raise ValueError("缺少唯一独立评审能力")
 
     def validate(output):
-        _validate_review(state, payload, output)
+        if _validate_review(state, payload, output)["verdict"] == "approved":
+            witness_review_input(payload, output)
         return output
 
     output = await context.invoke_agent(agent_key="test_generation_reviewer", input_payload=payload, validate_candidate=validate)
-    return _apply_review(context, payload, output)
+    witness_receipt = None
+    if _validate_review(state, payload, output)["verdict"] == "approved":
+        witness_receipt = {"witness_checks": []}
+        for batch in witness_batches(witness_review_input(payload, output)):
+            receipt = await context.invoke_agent(agent_key="test_generation_reviewer",
+                input_payload=batch, validate_candidate=partial(witness_gaps, batch))
+            witness_receipt["witness_checks"].extend(receipt["witness_checks"])
+            if witness_gaps(batch, receipt):
+                break
+    return _apply_review(context, payload, output, witness_receipt=witness_receipt)
 
 
 def request_confirmation(context, arguments):
@@ -997,13 +991,20 @@ def _can_finish(state):
     covered = {identity for record in cases.values() for identity in record["content"]["coverage_ids"]}
     required = {item["coverage_id"] for item in state["coverage_plan"]["items"]}
     return bool(len(cases) == state["goal"]["case_budget"] and required <= covered
-                and not _active_issues(state) and _review_current(state) and state["review"]["result"]["verdict"] == "approved")
+                and not _active_issues(state) and _review_current(state) and state["review"]["result"]["verdict"] == "approved"
+                and (not state.get("requires_witness_review") or bool(state["review"].get("witness_receipt"))))
 
 
 def _build_delivery(context, state):
     if not _can_finish(state):
         _error("当前数量、覆盖范围、未决问题或独立评审尚未全部通过")
-    checks = validate_review_checks(state, _review_input(state), state["review"]["result"])
+    payload = _review_input(state)
+    review = state["review"]
+    receipt = review.get("witness_receipt")
+    if receipt is not None or state.get("requires_witness_review"):
+        if witness_gaps(witness_review_input(payload, review["result"]), receipt):
+            _error("步骤核对仍有未修复的覆盖缺口")
+    checks = validate_review_checks(state, payload, review["result"])
     if any(checks[key] != state["review"]["result"][key] for key in ("source_checks", "case_checks", "checked_case_ids")):
         raise ValueError("交付审查回执与当前完整来源及用例版本不一致")
     cases = []
@@ -1016,6 +1017,7 @@ def _build_delivery(context, state):
             "evidence": {"source": deepcopy(state["source_ref"])}, "coverage_plan": deepcopy(state["coverage_plan"]),
             "approved_decisions": deepcopy(state["approved_decisions"]),
             "final_review": {"phase": "final_review", "approved": True, "input_hash": state["review"]["input_hash"],
+                             **({"witness_checks_sha256": action_state_hash(receipt)} if receipt is not None else {}),
                              "checked_case_ids": list(state["cases"]["items"]),
                              "source_check_count": len(checks["source_checks"]),
                              "branch_check_count": sum(len(item["branches"]) for item in checks["source_checks"]),
@@ -1032,6 +1034,26 @@ def finish_generation(context, arguments):
     return {"completed": True}
 
 
+def _delivery_origin_matches(context, origin_id):
+    """只有同一逻辑任务的祖先可以提供不可变交付记录，多次续跑沿实际父链核对。"""
+    if type(origin_id) is not int:
+        return False
+    if origin_id == context.run_id:
+        return True
+    run = context.db.get(AgentRun, context.run_id)
+    task = run.run_context.get("logical_task_id")
+    seen = set()
+    while run.id != origin_id:
+        if not task or not run.parent_run_id or run.id in seen:
+            return False
+        seen.add(run.id)
+        run = context.db.get(AgentRun, run.parent_run_id)
+        if (run is None or (run.user_id, run.project_id) != (context.user_id, context.project_id)
+                or run.run_context.get("logical_task_id") != task or run.input_payload != context.run_input):
+            return False
+    return True
+
+
 def validate_generation_resolution(context, arguments):
     state = _state(context)
     if arguments.get("output") != {"completed": True} or not state["completed"]:
@@ -1039,9 +1061,12 @@ def validate_generation_resolution(context, arguments):
     if action_state_hash(arguments.get("input_payload")) != state["input_sha256"]:
         raise ValueError("交付验收的输入版本不一致")
     actual = _build_delivery(context, state)
-    if actual != state["delivery"]:
+    saved = state["delivery"]
+    if not isinstance(saved, dict) or not _delivery_origin_matches(context, saved.get("run_id")):
+        raise ValueError("交付内容来自当前任务父链之外的运行")
+    if saved != {**actual, "run_id": saved["run_id"]}:
         raise ValueError("交付内容与当前完整用例和评审版本不一致")
-    context.artifacts["test_generation"] = deepcopy(actual)
+    context.artifacts["test_generation"] = actual
     return {"completed": True}
 
 

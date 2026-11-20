@@ -59,32 +59,32 @@ def test_cleanup_project_service_processes_stops_root_trees_once(monkeypatch) ->
             "pid": 90,
             "parent_pid": 1,
             "name": "python.exe",
-            "command_line": rf'"{root}\.venv\Scripts\python.exe" "{root}\backend\start_dev.py"',
+            "command_line": rf'"{root}\.conda\python.exe" "{root}\backend\start_dev.py"',
         },
         {
             "pid": 100,
             "parent_pid": 90,
             "name": "python.exe",
             # 旧启动器可能由 PATH 中的 Python 启动，命令行不含项目绝对路径。
-            "command_line": r'"C:\Program Files\Python311\python.exe" start_dev.py',
+            "command_line": r'"C:\Program Files\Python\python.exe" start_dev.py',
         },
         {
             "pid": 101,
             "parent_pid": 100,
             "name": "python.exe",
-            "command_line": rf'"{root}\.venv\Scripts\python.exe" -m celery -A celery_worker.celery_app worker',
+            "command_line": rf'"{root}\.conda\python.exe" -m celery -A celery_worker.celery_app worker',
         },
         {
             "pid": 102,
             "parent_pid": 100,
             "name": "python.exe",
-            "command_line": rf'"{root}\.venv\Scripts\python.exe" -m uvicorn main:app --port 8000',
+            "command_line": rf'"{root}\.conda\python.exe" -m uvicorn main:app --port 8000',
         },
         {
             "pid": 103,
             "parent_pid": 101,
             "name": "python.exe",
-            "command_line": r'"C:\Program Files\Python311\python.exe" -m celery -A celery_worker.celery_app worker',
+            "command_line": r'"C:\Program Files\Python\python.exe" -m celery -A celery_worker.celery_app worker',
         },
         {
             "pid": 200,
@@ -114,13 +114,10 @@ def test_cleanup_project_service_processes_stops_root_trees_once(monkeypatch) ->
     os.name != "nt" or os.getenv("RUN_LIVE_CELERY_TESTS") != "1",
     reason="Windows 设置 RUN_LIVE_CELERY_TESTS=1 后验证真实隔离 Celery Worker",
 )
-@pytest.mark.parametrize("use_project_venv", [False, True], ids=["current-python", "project-venv"])
-def test_worker_ready_handshake_with_real_isolated_worker(tmp_path, use_project_venv) -> None:
+def test_worker_ready_handshake_with_real_isolated_worker(tmp_path) -> None:
     backend_dir = Path(__file__).resolve().parents[1]
     root_dir = backend_dir.parent
-    executable = root_dir / ".venv" / "Scripts" / "python.exe" if use_project_venv else Path(sys.executable)
-    if not executable.is_file():
-        pytest.skip("当前项目没有可验证的 Python 虚拟环境")
+    executable = Path(sys.executable)
     identity = f"startup-readiness-{uuid.uuid4().hex}"
     ready_file = tmp_path / "ready.json"
     log_file = tmp_path / "worker.log"

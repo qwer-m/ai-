@@ -18,6 +18,7 @@ from sqlalchemy.dialects.mysql import LONGTEXT
 from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.orm import Session
 
+from core.db import db_utc_now
 from core.db.database import SessionLocal
 from core.db.model_defs import (
     AgentApproval, AgentNodeRun, AgentRun, AgentRunEvent,
@@ -189,7 +190,7 @@ def verify_lifecycle(source: AgentRun, latest_event: AgentRunEvent | None) -> di
         run = repo.get_run_for_update(run_id=source.id)
         assert run is not None
         original_business = deepcopy((run.input_payload, run.run_context, run.output_payload))
-        at = datetime.utcnow().replace(microsecond=0)
+        at = db_utc_now().replace(microsecond=0)
         baseline_sequence = latest_event.sequence if latest_event is not None else 0
 
         def move(target: str) -> None:
@@ -275,7 +276,7 @@ def verify_approval(online: Session) -> dict[str, Any]:
         copied_approval = repo.list_approvals(run_id=source.id)[0]
         assert copied_run is not None
         request_before = deepcopy(copied_approval.request_payload)
-        at = datetime.utcnow().replace(microsecond=0)
+        at = db_utc_now().replace(microsecond=0)
         inject_running_state(copied_run, at)
         # 只把真实审批副本的状态置为待决，保留其完整原始请求。
         copied_approval.status = "pending"
@@ -304,7 +305,7 @@ def verify_node_finalization(online: Session, source: AgentRun) -> dict[str, Any
         with isolated_repository(source, *nodes) as repo:
             run = repo.get_run(run_id=source.id)
             assert run is not None
-            at = datetime.utcnow().replace(microsecond=0)
+            at = db_utc_now().replace(microsecond=0)
             inject_running_state(run, at)
             loaded_nodes = [repo.db.get(AgentNodeRun, original.id) for original in nodes]
             assert all(node is not None for node in loaded_nodes)
@@ -361,7 +362,7 @@ def verify_stale_worker_lease(source: AgentRun) -> dict[str, Any]:
         with isolated_repository(source) as worker_repo:
             worker_run = worker_repo.get_run(run_id=source.id)
             assert worker_run is not None
-            at = datetime.utcnow().replace(microsecond=0)
+            at = db_utc_now().replace(microsecond=0)
             inject_running_state(worker_run, at)
             worker_repo.db.commit()
             old_claim = worker_run.claim_token

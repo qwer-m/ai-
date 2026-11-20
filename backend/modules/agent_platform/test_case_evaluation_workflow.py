@@ -17,7 +17,17 @@ REPORT_SUMMARY_SCHEMA: dict[str, Any] = {"type": "string", "minLength": 1, "maxL
 TEXT = {"type": "string", "minLength": 1}
 REFS = {"type": "array", "items": TEXT, "uniqueItems": True}
 COVERAGE = {"type": "string", "enum": ["full", "partial", "missing"]}
+ASSERTION_FIELDS = {
+    "verdict": {"type": "string", "enum": [
+        "detects_fault", "missing_trigger", "unobservable", "wrong_oracle", "unclear_requirement", "no_case",
+    ]},
+    "case_id": {"type": "string"},
+    "steps": {"type": "array", "items": {"type": "integer", "minimum": 1}, "uniqueItems": True},
+    "fault": TEXT,
+}
 GROUP_FIELDS = {
+    "assertion": {"type": "object", "properties": ASSERTION_FIELDS, "required": list(ASSERTION_FIELDS),
+                  "additionalProperties": False},
     "point": TEXT, "agent": COVERAGE, "manual": COVERAGE,
     "case_ids": REFS, "manual_refs": REFS, "reason": TEXT,
     "difference": {"type": "string", "enum": ["none", "missing_points", "hallucinations", "modifications"]},
@@ -36,6 +46,22 @@ def _ratio(numerator, denominator):
     return round(numerator / denominator, 4) if denominator else None
 
 
+def _validate_assertion(group: dict, cases: dict) -> None:
+    """让判定落到生成稿的真实步骤上；没有用例时不得虚构见证。"""
+    assertion = group["assertion"]
+    case_id, steps = assertion["case_id"], assertion["steps"]
+    if assertion["verdict"] == "no_case":
+        if group["case_ids"] or case_id or steps or group["agent"] != "missing":
+            raise ValueError(f"{group['point']} 无用例见证时引用必须为空且生成覆盖为 missing")
+        return
+    if case_id not in group["case_ids"] or not steps:
+        raise ValueError(f"{group['point']} 断言必须引用本组生成用例及其步骤")
+    if any(type(i) is not int or not 1 <= i <= len(cases[case_id]["steps"]) for i in steps):
+        raise ValueError(f"{group['point']} 断言步骤必须是 {case_id} 中存在的从 1 开始的序号")
+    if group["agent"] == "full" and assertion["verdict"] != "detects_fault":
+        raise ValueError(f"{group['point']} 存在未检出的核心错误，生成稿不能判为完整覆盖")
+
+
 def _build_evaluation_result(evidence: dict, inputs: dict) -> dict:
     """模型判定逐组行为，代码按真实引用、冻结分母和排除规则计算指标。"""
     groups = [dict(row) for row in evidence["groups"]]
@@ -50,7 +76,7 @@ def _build_evaluation_result(evidence: dict, inputs: dict) -> dict:
         raise ValueError("逐组回执遗漏、重复或改变了本次冻结的正文要求")
     keyed = {g["point"]: g for g in groups}
     groups = [keyed[p] for p in inputs["baseline_groups"] or points]
-    cases = {c["case_id"] for c in inputs["generated_cases"]}
+    cases = {c["case_id"]: c for c in inputs["generated_cases"]}
     manual = None
     # 页面从历史加载的表格可作为文本再次提交，行身份和跳过状态仍然有效。
     reference = inputs["reference_content"].lstrip()
@@ -72,8 +98,10 @@ def _build_evaluation_result(evidence: dict, inputs: dict) -> dict:
                 raise ValueError("人工用例行引用重复")
     analysis = {"missing_points": [], "hallucinations": [], "modifications": []}
     for row in groups:
-        if not set(row["case_ids"]) <= cases or (row["agent"] != "missing" and not row["case_ids"]):
+        if not set(row["case_ids"]) <= cases.keys() or (row["agent"] != "missing" and not row["case_ids"]):
             raise ValueError("生成稿覆盖判断缺少有效用例见证")
+        if "assertion" in row:
+            _validate_assertion(row, cases)
         refs = row["manual_refs"]
         if manual is not None and not set(refs) <= manual.keys():
             raise ValueError("人工稿引用了无效用例行")
@@ -269,13 +297,21 @@ BUILTIN_AGENT_SPECS: tuple[dict[str, Any], ...] = (
             "只列与本组直接相关的用例；仅SKIP行适用时仍列该行，manual写missing，平台自动排除；"
             "有非跳过行时仅按非跳过步骤判定。PASS状态本身不替代步骤。没有行和跳过执行是不同情况。"
             "reason简述双方实际动作、见证步骤、缺失的断言。不要因复用同一用例或列表顺序不同而扣分。"
+            "每组独立审查生成稿的断言，结合人工稿找出它能否区分的具体错误实现。聚焦本组最容易漏检的核心行为。"
+            "assertion.case_id取本组最能说明判断的一个真实用例；steps列出它的触发和检查步骤序号（从1开始）。"
+            "fault简述一种贴合正文的错误实现，并说明按引用步骤会在哪个观察处失败，或为何错误仍能通过。"
+            "detects_fault要求有实际触发、可观察的结果和有正文依据的判断标准；存在多个必验分支时优先检验薄弱分支。"
+            "只列可选值或只打开页面、未触发待验行为用missing_trigger；即使结果错误也能满足模糊预期用unobservable；"
+            "预期与已确认规则矛盾用wrong_oracle；需求不足以确定正确预期用unclear_requirement。人工稿不能单独确立新规则。"
+            "无相关生成用例时用no_case、case_id空串、steps空数组，fault说明未受检查的行为。SKIP照实记录，代码排除计分。"
+            "每组reason和fault各用一个短句，不复述全文。"
             "difference仅记录有业务证据的实质差异，missing_points为人工补足AI遗漏，hallucinations为无依据断言，"
             "modifications为两版同意图的实质修改；相同或仅无执行记录或仅跳过填none。无需输出任何分数。"
         ),
         "model": "",
         "output_schema": EVALUATION_EVIDENCE_SCHEMA,
         "runtime_config": {
-            "model_route": "review", "max_turns": 3, "max_output_tokens": 12000,
+            "model_route": "review", "max_turns": 3, "max_output_tokens": 24000,
             "stream_response": True, "max_retries": 0, "request_timeout_seconds": 240,
             "disable_server_output_schema": True, "validate_before_submit": True,
             "stop_at_tool_keys": ["submit_result"], "tool_choice": "required", "tool_keys": [],

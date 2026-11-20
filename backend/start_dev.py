@@ -47,12 +47,6 @@ except ImportError:
         wait_for_backend_ready,
     )
 
-# Disable Chroma telemetry to avoid noisy local startup errors.
-os.environ["ANONYMIZED_TELEMETRY"] = "False"
-os.environ["CHROMA_SERVER_NO_ANALYTICS"] = "True"
-os.environ["CHROMA_PRODUCT_TELEMETRY_IMPL"] = "core.cache_layer.chroma_telemetry.NoOpProductTelemetryClient"
-os.environ["CHROMA_TELEMETRY_IMPL"] = "core.cache_layer.chroma_telemetry.NoOpProductTelemetryClient"
-
 
 def main() -> None:
     print("Starting AI Test Platform (Dev Mode)...")

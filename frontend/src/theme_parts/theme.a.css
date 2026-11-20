@@ -86,27 +86,19 @@ body.theme-dark .postman-theme h2,
 body.theme-dark .postman-theme h3,
 body.theme-dark .postman-theme h4,
 body.theme-dark .postman-theme h5,
-body.theme-dark .postman-theme h6,
-body.theme-dark .rag-console h1,
-body.theme-dark .rag-console h2,
-body.theme-dark .rag-console h3,
-body.theme-dark .rag-console h4,
-body.theme-dark .rag-console h5,
-body.theme-dark .rag-console h6 {
+body.theme-dark .postman-theme h6 {
   color: #b9cae1 !important;
 }
 
 /* 中文注释：夜间模式下的通用颜色修正 */
 body.theme-dark .dashboard-shell .bg-white,
 body.theme-dark .postman-theme .bg-white,
-body.theme-dark .rag-console .bg-white,
 body.theme-dark .evaluation-shell .bg-white,
 body.theme-dark .knowledge-base-shell .bg-white {
   background-color: #1b212a !important;
 }
 body.theme-dark .dashboard-shell .bg-light,
 body.theme-dark .postman-theme .bg-light,
-body.theme-dark .rag-console .bg-light,
 body.theme-dark .evaluation-shell .bg-light,
 body.theme-dark .knowledge-base-shell .bg-light {
   background-color: #1b212a !important;
@@ -119,28 +111,24 @@ body.theme-dark .postman-theme .bg-body-tertiary {
 }
 body.theme-dark .dashboard-shell .border-light,
 body.theme-dark .postman-theme .border-light,
-body.theme-dark .rag-console .border-light,
 body.theme-dark .evaluation-shell .border-light,
 body.theme-dark .knowledge-base-shell .border-light {
   border-color: #232a33 !important;
 }
 body.theme-dark .dashboard-shell .text-secondary,
 body.theme-dark .postman-theme .text-secondary,
-body.theme-dark .rag-console .text-secondary,
 body.theme-dark .evaluation-shell .text-secondary,
 body.theme-dark .knowledge-base-shell .text-secondary {
   color: #8ea3be !important;
 }
 body.theme-dark .dashboard-shell .text-muted,
 body.theme-dark .postman-theme .text-muted,
-body.theme-dark .rag-console .text-muted,
 body.theme-dark .evaluation-shell .text-muted,
 body.theme-dark .knowledge-base-shell .text-muted {
   color: #7f97b3 !important;
 }
 body.theme-dark .dashboard-shell .text-white,
 body.theme-dark .postman-theme .text-white,
-body.theme-dark .rag-console .text-white,
 body.theme-dark .evaluation-shell .text-white,
 body.theme-dark .knowledge-base-shell .text-white {
   color: #9fb3cc !important;
@@ -151,9 +139,6 @@ body.theme-dark .dashboard-shell .input-group-text,
 body.theme-dark .postman-theme .form-control,
 body.theme-dark .postman-theme .form-select,
 body.theme-dark .postman-theme .input-group-text,
-body.theme-dark .rag-console .form-control,
-body.theme-dark .rag-console .form-select,
-body.theme-dark .rag-console .input-group-text,
 body.theme-dark .evaluation-shell .form-control,
 body.theme-dark .evaluation-shell .form-select,
 body.theme-dark .evaluation-shell .input-group-text,
@@ -172,10 +157,6 @@ body.theme-dark .postman-theme .form-control::placeholder,
 body.theme-dark .postman-theme .form-select::placeholder,
 body.theme-dark .postman-theme input::placeholder,
 body.theme-dark .postman-theme textarea::placeholder,
-body.theme-dark .rag-console .form-control::placeholder,
-body.theme-dark .rag-console .form-select::placeholder,
-body.theme-dark .rag-console input::placeholder,
-body.theme-dark .rag-console textarea::placeholder,
 body.theme-dark .evaluation-shell .form-control::placeholder,
 body.theme-dark .evaluation-shell .form-select::placeholder,
 body.theme-dark .evaluation-shell input::placeholder,
@@ -194,10 +175,6 @@ body.theme-dark .postman-theme .form-control:focus,
 body.theme-dark .postman-theme .form-select:focus,
 body.theme-dark .postman-theme input:focus,
 body.theme-dark .postman-theme textarea:focus,
-body.theme-dark .rag-console .form-control:focus,
-body.theme-dark .rag-console .form-select:focus,
-body.theme-dark .rag-console input:focus,
-body.theme-dark .rag-console textarea:focus,
 body.theme-dark .evaluation-shell .form-control:focus,
 body.theme-dark .evaluation-shell .form-select:focus,
 body.theme-dark .evaluation-shell input:focus,

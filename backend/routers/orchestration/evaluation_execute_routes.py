@@ -1,28 +1,122 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from typing import Any
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, defer
 
 from core.authn.auth import get_current_user
 from core.db.database import get_db
-from core.db.model_defs import AgentRun, User
+from core.db.model_defs import AgentRun, AgentWorkflowDefinition, KnowledgeDocument, User
 from core.processing.file_processing import is_image_filename, parse_file_bytes, parse_image_bytes_with_fallback
 from core.processing.workflow import WorkflowKind, WorkflowStage, log_workflow_trace
-from modules.automation_components.services.test_case_file_parser import evaluation_spreadsheet_reference
-from modules.agent_platform.automation_evaluation import execute_automation_evaluation
+from modules.agent_platform.evaluation_spreadsheet import evaluation_spreadsheet_reference
+from modules.agent_platform.run_repository import AgentRunRepository
+from modules.agent_platform.sources import SourceSnapshot, latest_successful_run_for_source, persisted_source_snapshot
 from modules.agent_platform.serialization import serialize_run
 from modules.agent_platform.test_case_evaluation import EvaluationAlreadyRunningError, create_test_case_evaluation_run
 from modules.agent_platform.test_case_evaluation_feedback import evaluation_source_inputs
+from modules.domain.knowledge_base import knowledge_base
+from modules.knowledge_base_components.repositories.knowledge_document_repository import KnowledgeDocumentRepository
 from modules.knowledge_base_components.document.offline_parse_support import validate_parsed_content
-from modules.orchestration.context_orchestrator import context_orchestrator
+from routers.system.common_responses import build_upload_knowledge_response
 from routers.orchestration.evaluation_shared import get_owned_project, is_attachment_ocr_ok
-from schemas.automation.api_testing import APITestEvalRequest
-from schemas.automation.ui_automation import UIAutoEvalRequest
 
 router = APIRouter()
+
+
+def _document_source(db: Session, project_id: int, document_id: int) -> SourceSnapshot:
+    document = KnowledgeDocumentRepository(db).get_project_doc(project_id=project_id, doc_id=document_id)
+    if document is None:
+        raise HTTPException(status_code=404, detail="当前项目中没有这份需求文档")
+    try:
+        return SourceSnapshot.from_document(document)
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+
+
+def _generation_run(db: Session, project_id: int, user_id: int, run_id: int) -> AgentRun:
+    run = db.query(AgentRun).join(AgentWorkflowDefinition).filter(
+        AgentRun.id == run_id, AgentRun.project_id == project_id, AgentRun.user_id == user_id,
+        AgentWorkflowDefinition.workflow_key == "test_generation",
+    ).first()
+    if run is None:
+        raise HTTPException(status_code=404, detail="无效 Run ID：当前项目中没有这次生成运行")
+    return run
+
+
+def _evaluation_inputs(run: AgentRun, source: SourceSnapshot | None) -> tuple[str, list[dict[str, Any]]]:
+    try:
+        requirement, cases, snapshot = evaluation_source_inputs(run)
+        if source is not None and source.document_id != snapshot.document_id:
+            raise ValueError("该生成运行属于其他需求文档")
+        if source is not None and source.content_hash != snapshot.content_hash:
+            raise ValueError("该生成运行使用了这份需求文档的其他版本")
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=f"无效 Run ID：{error}") from error
+    return requirement, cases
+
+
+@router.post("/evaluation/requirement")
+async def upload_evaluation_requirement(
+    project_id: int = Form(...), file: UploadFile = File(...),
+    db: Session = Depends(get_db), current_user: User = Depends(get_current_user),
+):
+    get_owned_project(project_id, db, current_user.id)
+    digest = hashlib.sha256()
+    while chunk := await file.read(1024 * 1024):
+        digest.update(chunk)
+    documents = db.query(KnowledgeDocument).options(defer(KnowledgeDocument.content)).filter(
+        KnowledgeDocument.project_id == project_id, KnowledgeDocument.parse_status == "success",
+        KnowledgeDocument.doc_type.in_(SourceSnapshot.DOCUMENT_TYPES),
+        KnowledgeDocument.content_hash == digest.hexdigest(),
+    ).order_by(KnowledgeDocument.id.desc()).all()
+    if documents:
+        document = documents[0]
+        if len(documents) > 1:
+            by_id = {doc.id: doc for doc in documents}
+            latest = latest_successful_run_for_source(
+                AgentRunRepository(db), project_id=project_id, user_id=current_user.id,
+                workflow_key="test_generation", source=SourceSnapshot.from_document(document), document_ids=set(by_id),
+            )
+            if latest:
+                document = by_id[persisted_source_snapshot(latest).document_id]
+        return build_upload_knowledge_response(document, {})
+    await file.seek(0)
+    result = await knowledge_base.enqueue_document_for_offline_parse(
+        file=file, project_id=project_id, doc_type="requirement", db=db, user_id=current_user.id,
+    )
+    return build_upload_knowledge_response(result["document"], result)
+
+
+@router.get("/evaluation/source")
+def get_evaluation_source(
+    project_id: int, requirement_doc_id: int, run_id: int | None = None,
+    db: Session = Depends(get_db), current_user: User = Depends(get_current_user),
+):
+    get_owned_project(project_id, db, current_user.id)
+    source = _document_source(db, project_id, requirement_doc_id)
+    if run_id is None:
+        latest = latest_successful_run_for_source(
+            AgentRunRepository(db), project_id=project_id, user_id=current_user.id,
+            workflow_key="test_generation", source=source, document_ids={requirement_doc_id},
+        )
+        if latest is None:
+            return {"source": None}
+        run = latest
+    else:
+        run = _generation_run(db, project_id, current_user.id, run_id)
+    requirement, cases = _evaluation_inputs(run, source)
+    evaluation = (run.run_context or {}).get("artifacts", {}).get("test_evaluation")
+    return {"source": {
+        "project_id": project_id, "document_id": source.document_id, "run_id": run.id,
+        "requirement": requirement, "cases": cases,
+        "evaluation": {key: evaluation[key] for key in (
+            "source_run_id", "evaluation_run_id", "project_id", "upload", "reference_content", "evaluation",
+        )} if evaluation else None,
+    }}
 
 
 @router.post("/evaluate-test-cases", status_code=202)
@@ -31,6 +125,7 @@ async def evaluate_test_cases(
     baseline_groups: str = Form("[]"),
     project_id: int = Form(...),
     run_id: int = Form(...),
+    requirement_doc_id: int | None = Form(None),
     file: UploadFile | None = File(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -47,21 +142,9 @@ async def evaluate_test_cases(
     except ValueError as error:
         raise HTTPException(status_code=422, detail="评测基线应为无重复的正文要求数组") from error
 
-    source_run = (
-        db.query(AgentRun)
-        .filter(
-            AgentRun.id == run_id,
-            AgentRun.project_id == project_id,
-            AgentRun.user_id == current_user.id,
-        )
-        .first()
-    )
-    if source_run is None:
-        raise HTTPException(status_code=404, detail="Agent Run 不存在")
-    try:
-        requirement_text, generated_cases, _ = evaluation_source_inputs(source_run)
-    except ValueError as error:
-        raise HTTPException(status_code=409, detail=str(error)) from error
+    source = _document_source(db, project_id, requirement_doc_id) if requirement_doc_id is not None else None
+    run = _generation_run(db, project_id, current_user.id, run_id)
+    requirement_text, generated_cases = _evaluation_inputs(run, source)
     final_reference = (reference_content or "").strip()
     upload_persist: dict[str, Any] = {
         "filename": "",
@@ -143,102 +226,3 @@ async def evaluate_test_cases(
         },
     )
     return {"run": serialize_run(evaluation_run)}
-
-
-@router.post("/evaluate-ui-automation")
-def evaluate_ui_automation(
-    req: UIAutoEvalRequest,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    get_owned_project(req.project_id, db, current_user.id)
-    context_bundle = context_orchestrator.assemble_context(
-        WorkflowKind.EVALUATION,
-        req.project_id,
-        db,
-        user_id=current_user.id,
-        query_text=req.script[:500],
-        requirement_text=req.execution_result[:2000],
-        include_knowledge=True,
-        include_logs=True,
-        knowledge_limit=3,
-        log_limit=12,
-    )
-    log_workflow_trace(
-        db,
-        req.project_id,
-        current_user.id,
-        WorkflowKind.EVALUATION,
-        WorkflowStage.EVALUATE,
-        {"action": "evaluate_ui_automation", **context_bundle["diagnostics"]},
-    )
-    run, artifact = execute_automation_evaluation(
-        db=db,
-        project_id=req.project_id,
-        user_id=current_user.id,
-        evaluation_type="ui",
-        script=req.script,
-        execution_result=req.execution_result,
-        project_context=context_bundle["combined_context"],
-        user_journey=req.journey_json,
-    )
-    return {
-        "result": artifact["result"],
-        "run_id": run.id,
-        "status": run.status,
-        "artifact": artifact,
-        "context_diagnostics": context_bundle["diagnostics"],
-    }
-
-
-@router.post("/evaluate-api-test")
-def evaluate_api_test(
-    req: APITestEvalRequest,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    get_owned_project(req.project_id, db, current_user.id)
-    context_bundle = context_orchestrator.assemble_context(
-        WorkflowKind.EVALUATION,
-        req.project_id,
-        db,
-        user_id=current_user.id,
-        query_text=req.script[:500],
-        requirement_text=req.execution_result[:2000],
-        include_knowledge=True,
-        include_interfaces=True,
-        include_logs=True,
-        knowledge_limit=2,
-        interface_limit=12,
-        log_limit=12,
-    )
-    effective_spec = req.openapi_spec or context_bundle["interface_context"]
-    log_workflow_trace(
-        db,
-        req.project_id,
-        current_user.id,
-        WorkflowKind.EVALUATION,
-        WorkflowStage.EVALUATE,
-        {
-            "action": "evaluate_api_test",
-            "used_openapi_fallback": not bool(req.openapi_spec),
-            **context_bundle["diagnostics"],
-        },
-    )
-    run, artifact = execute_automation_evaluation(
-        db=db,
-        project_id=req.project_id,
-        user_id=current_user.id,
-        evaluation_type="api",
-        script=req.script,
-        execution_result=req.execution_result,
-        project_context=context_bundle["combined_context"],
-        openapi_spec=effective_spec,
-    )
-    return {
-        "result": artifact["result"],
-        "run_id": run.id,
-        "status": run.status,
-        "artifact": artifact,
-        "context_diagnostics": context_bundle["diagnostics"],
-    }

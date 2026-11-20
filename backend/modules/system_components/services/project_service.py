@@ -5,13 +5,9 @@ from __future__ import annotations
 from sqlalchemy.orm import Session
 
 from core.db.model_defs import (
-    APIExecution,
     KnowledgeDocument,
     LogEntry,
     Project,
-    RecallMetric,
-    UIErrorOperation,
-    UIExecution,
 )
 from modules.system_components.repositories.project_repository import ProjectRepository
 
@@ -115,14 +111,11 @@ class ProjectService:
             }
 
         try:
+            self.repo.delete_retired_project_rows(project_id=project_id)
             self.repo.delete_agent_platform(project_id=project_id)
             for model in (
                 KnowledgeDocument,
                 LogEntry,
-                UIErrorOperation,
-                UIExecution,
-                APIExecution,
-                RecallMetric,
             ):
                 self.repo.delete_project_scoped(model, project_id=project_id)
             self.repo.delete(project)

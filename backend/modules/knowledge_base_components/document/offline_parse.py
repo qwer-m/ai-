@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import os
 import hashlib
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Optional
 from uuid import uuid4
@@ -13,6 +13,7 @@ from uuid import uuid4
 from fastapi import UploadFile
 from sqlalchemy.orm import Session
 
+from core.db import db_utc_now
 from core.db.model_defs import KnowledgeDocument
 from core.processing.file_processing import parse_file_path
 from modules.knowledge_base_components.document.document_index_service import (
@@ -58,7 +59,7 @@ OFFLINE_UPLOAD_DIR = _resolve_offline_upload_dir()
 
 def _build_storage_name(filename: str) -> str:
     suffix = Path(filename or "").suffix or ".bin"
-    return f"{datetime.utcnow().strftime('%Y%m%d%H%M%S')}_{uuid4().hex}{suffix}"
+    return f"{datetime.now(UTC).strftime('%Y%m%d%H%M%S')}_{uuid4().hex}{suffix}"
 
 
 async def save_upload_file_for_offline_parse(file: UploadFile) -> str:
@@ -159,7 +160,7 @@ def mark_parse_failed_impl(
         return
     doc.parse_status = "failed"
     doc.parse_error = safe_error_message(error)
-    doc.parsed_at = datetime.utcnow()
+    doc.parsed_at = db_utc_now()
     if task_id:
         doc.task_id = task_id
     if retry_count is not None:
@@ -245,7 +246,7 @@ def parse_document_offline_impl(
     try:
         doc.parse_status = "success"
         doc.parse_error = None
-        doc.parsed_at = datetime.utcnow()
+        doc.parsed_at = db_utc_now()
         doc.retry_count = retry_count
         repo.commit()
     except Exception:

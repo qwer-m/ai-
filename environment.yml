@@ -1,0 +1,9 @@
+name: ai-test-platform
+channels:
+  - conda-forge
+dependencies:
+  - python=3.15.2
+  - onnxruntime=*=*cpu*
+  - libblas=*=*openblas
+  - pyyaml
+  - pip

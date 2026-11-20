@@ -1,42 +1,4 @@
 @echo off
-setlocal EnableExtensions EnableDelayedExpansion
-cd /d "%~dp0"
-
-for %%I in ("%~dp0..\..") do set "ROOT_DIR=%%~fI"
-set "PYTHON_EXE=%ROOT_DIR%\.venv\Scripts\python.exe"
-if not exist "!PYTHON_EXE!" (
-    echo [ERROR] Project virtual environment not found: !PYTHON_EXE!
-    echo [ERROR] Run the root launcher once to create .venv and install dependencies.
-    pause
-    exit /b 1
-)
-
-REM Do not mix global Python with the project runtime.
-"!PYTHON_EXE!" -V >nul 2>&1
-if errorlevel 1 (
-    echo [ERROR] Project virtual environment Python is unavailable: !PYTHON_EXE!
-    echo [ERROR] Recreate .venv before starting the platform.
-    pause
-    exit /b 1
-)
-
-echo Using Python: !PYTHON_EXE!
-echo Starting dev services from: %ROOT_DIR%\backend
-
-if not exist "%ROOT_DIR%\backend\start_dev.py" (
-    echo [ERROR] start_dev.py not found at %ROOT_DIR%\backend\start_dev.py
-    pause
-    exit /b 1
-)
-
-pushd "%ROOT_DIR%\backend"
-"!PYTHON_EXE!" start_dev.py
-set "EXIT_CODE=%ERRORLEVEL%"
-popd
-
-if %EXIT_CODE% neq 0 (
-    echo [ERROR] Startup failed with code %EXIT_CODE%
-)
-
-pause
-exit /b %EXIT_CODE%
+chcp 65001 >nul
+call "%~dp0..\..\..\启动服务.bat"
+exit /b %ERRORLEVEL%

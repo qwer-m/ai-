@@ -37,12 +37,10 @@ export const Dashboard = () => {
           themeMode={controller.themeMode}
           navItems={dashboardNavItems}
           activeTab={controller.activeTab}
-          expandedKeys={controller.expandedKeys}
           healthLoading={controller.healthLoading}
           healthError={controller.healthError}
           health={controller.health}
           onSelectTab={controller.setActiveTab}
-          onToggleExpand={controller.toggleExpand}
           onToggleTheme={controller.handleToggleTheme}
         />
 
@@ -56,7 +54,7 @@ export const Dashboard = () => {
             healthError={controller.healthError}
             health={controller.health}
             onSelectProject={controller.setProjectId}
-            onCreateProject={handleOpenCreateProject}
+            onCreateProject={controller.activeTab === 'proj' ? undefined : handleOpenCreateProject}
             onOpenConfig={controller.handleOpenConfig}
             onLogout={handleLogout}
           />
@@ -71,24 +69,6 @@ export const Dashboard = () => {
             onSystemLog={(msg) => controller.handleLog(msg, 'system')}
             onProjectRefresh={controller.fetchProjects}
             onSelectProject={controller.setProjectId}
-            evalGenerated={controller.evalGenerated}
-            setEvalGenerated={controller.setEvalGenerated}
-            evalModified={controller.evalModified}
-            setEvalModified={controller.setEvalModified}
-            evalResult={controller.evalResult}
-            setEvalResult={controller.setEvalResult}
-            uiEvalScript={controller.uiEvalScript}
-            setUiEvalScript={controller.setUiEvalScript}
-            uiEvalExec={controller.uiEvalExec}
-            setUiEvalExec={controller.setUiEvalExec}
-            uiEvalOutput={controller.uiEvalOutput}
-            setUiEvalOutput={controller.setUiEvalOutput}
-            apiEvalScript={controller.apiEvalScript}
-            setApiEvalScript={controller.setApiEvalScript}
-            apiEvalExec={controller.apiEvalExec}
-            setApiEvalExec={controller.setApiEvalExec}
-            apiEvalOutput={controller.apiEvalOutput}
-            setApiEvalOutput={controller.setApiEvalOutput}
             openProjectCreateSignal={openProjectCreateSignal}
           />
         </div>

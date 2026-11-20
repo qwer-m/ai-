@@ -172,7 +172,6 @@ body.ui-overhaul-v4 .dashboard-health-chip {
 }
 
 body.ui-overhaul-v4 .workbench-shell .btn,
-body.ui-overhaul-v4 .rag-console .btn,
 body.ui-overhaul-v4 .knowledge-base-shell .btn,
 body.ui-overhaul-v4 .evaluation-shell .btn {
   min-height: 38px;
@@ -182,7 +181,6 @@ body.ui-overhaul-v4 .evaluation-shell .btn {
 }
 
 body.ui-overhaul-v4 .workbench-shell .btn-sm,
-body.ui-overhaul-v4 .rag-console .btn-sm,
 body.ui-overhaul-v4 .knowledge-base-shell .btn-sm,
 body.ui-overhaul-v4 .evaluation-shell .btn-sm {
   min-height: 34px;
@@ -224,6 +222,19 @@ body.ui-overhaul-v4 .workbench-shell .table thead th {
   color: var(--fd-text-soft);
 }
 
+.project-page-header {
+  padding: 10px var(--fd-card-padding);
+}
+
+.project-page-header .project-search-box {
+  width: min(100%, 24rem);
+}
+
+body.ui-overhaul-v4 .project-page-shell .project-page-table-wrap {
+  border: 0 !important;
+  border-radius: 0 !important;
+}
+
 body.ui-overhaul-v4 .workbench-shell .table td {
   font-size: 0.9rem;
 }
@@ -233,8 +244,7 @@ body.ui-overhaul-v4 .knowledge-pagination-bar {
   background: color-mix(in srgb, var(--fd-surface-soft) 78%, transparent) !important;
 }
 
-body.ui-overhaul-v4 .knowledge-pagination-control .page-link,
-body.ui-overhaul-v4 .rag-report-pagination .btn {
+body.ui-overhaul-v4 .knowledge-pagination-control .page-link {
   min-width: 34px;
   border-radius: 9px !important;
   border-color: color-mix(in srgb, var(--fd-border) 90%, transparent);
@@ -253,8 +263,7 @@ body.ui-overhaul-v4 .knowledge-pagination-control .page-item.disabled .page-link
   opacity: 0.55;
 }
 
-body.ui-overhaul-v4 .knowledge-pagination-control .page-link:hover,
-body.ui-overhaul-v4 .rag-report-pagination .btn:hover {
+body.ui-overhaul-v4 .knowledge-pagination-control .page-link:hover {
   border-color: color-mix(in srgb, var(--fd-primary) 28%, var(--fd-border));
   background: color-mix(in srgb, var(--fd-primary) 10%, var(--fd-surface));
 }
@@ -293,8 +302,7 @@ body.theme-dark.ui-overhaul-v4 .workbench-shell .btn-outline-primary,
 body.theme-dark.ui-overhaul-v4 .workbench-shell .btn-outline-danger,
 body.theme-dark.ui-overhaul-v4 .workbench-shell .btn-outline-warning,
 body.theme-dark.ui-overhaul-v4 .workbench-shell .btn-outline-info,
-body.theme-dark.ui-overhaul-v4 .knowledge-pagination-control .page-link,
-body.theme-dark.ui-overhaul-v4 .rag-report-pagination .btn {
+body.theme-dark.ui-overhaul-v4 .knowledge-pagination-control .page-link {
   background: color-mix(in srgb, var(--fd-surface) 92%, transparent);
   border-color: color-mix(in srgb, var(--fd-border) 88%, transparent);
   color: #9fb3cc;

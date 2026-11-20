@@ -13,6 +13,7 @@ from typing import Any
 from celery.exceptions import SoftTimeLimitExceeded
 
 from celery_config import celery_app
+from core.db import db_utc_now
 from modules.orchestration.task_names import TaskName
 
 logger = logging.getLogger(__name__)
@@ -45,12 +46,6 @@ def _cleanup_offline_file(*args: Any, **kwargs: Any) -> Any:
     from modules.knowledge_base_components.document.offline_parse import cleanup_offline_file
 
     return cleanup_offline_file(*args, **kwargs)
-
-
-def execute_eval_run(*args: Any, **kwargs: Any) -> Any:
-    from modules.rag_eval.services.rag_eval_service import execute_eval_run as real_execute_eval_run
-
-    return real_execute_eval_run(*args, **kwargs)
 
 
 def run_agent_workflow(*args: Any, **kwargs: Any) -> Any:
@@ -227,22 +222,6 @@ def audit_knowledge_index_consistency_task(
 
 @celery_app.task(
     bind=True,
-    name=TaskName.RUN_RAG_EVAL.value,
-    soft_time_limit=3600,
-    time_limit=3660,
-)
-def run_rag_eval_task(self, run_id: int, user_id: int):
-    """Run a persisted RAG evaluation through Celery."""
-    self.update_state(
-        state="STARTED",
-        meta={"status": "rag_eval_running", "run_id": run_id},
-    )
-    execute_eval_run(run_id=run_id, user_id=user_id)
-    return {"run_id": run_id, "status": "completed"}
-
-
-@celery_app.task(
-    bind=True,
     name=TaskName.RUN_AGENT_WORKFLOW.value,
     soft_time_limit=3600,
     time_limit=3660,
@@ -275,12 +254,12 @@ def recover_expired_agent_runs_task(self, limit: int = 20):
 @celery_app.task(bind=True, name=TaskName.CLEANUP_LOGS.value)
 def cleanup_logs_task(self, retention_hours: int = 72):
     """清理过期日志。"""
-    from datetime import datetime, timedelta
+    from datetime import timedelta
 
     from core.db.model_defs import LogEntry
 
     db = _session_local()()
-    cutoff_date = datetime.utcnow() - timedelta(hours=retention_hours)
+    cutoff_date = db_utc_now() - timedelta(hours=retention_hours)
 
     try:
         deleted_count = (

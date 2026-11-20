@@ -10,7 +10,6 @@ class TaskName(str, Enum):
     AUDIT_KNOWLEDGE_INDEX_CONSISTENCY = (
         "modules.orchestration.tasks.audit_knowledge_index_consistency_task"
     )
-    RUN_RAG_EVAL = "modules.orchestration.tasks.run_rag_eval_task"
     RUN_AGENT_WORKFLOW = "modules.orchestration.tasks.run_agent_workflow_task"
     RECOVER_EXPIRED_AGENT_RUNS = (
         "modules.orchestration.tasks.recover_expired_agent_runs_task"

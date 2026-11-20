@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 from sqlalchemy import event, func, select, update
 from sqlalchemy.orm import Session
 
+from core.db import db_utc_now
 from core.db.database import engine, SessionLocal
 from core.db.model_defs import AgentRun, AgentNodeRun, AgentRunEvent, AgentArtifactBlob
 from modules.agent_platform.action_journal import AgentActionJournal, ActionStateConflict
@@ -32,7 +33,7 @@ sys.addaudithook(_block_external_connection)
 def activate(db, run, node):
     token = new_claim_token()
     run.status, run.claim_token = "running", token
-    run.lease_expires_at = datetime.utcnow() + timedelta(minutes=10)
+    run.lease_expires_at = db_utc_now() + timedelta(minutes=10)
     node.status = "running"
     db.flush()
     db.commit()
@@ -181,7 +182,7 @@ def verify():
         db.execute(update(AgentArtifactBlob).where(AgentArtifactBlob.id == root_ref["id"]).values(payload_hash=original_hash))
         db.commit()
         run = db.get(AgentRun, 13)
-        run.lease_expires_at = datetime.utcnow() - timedelta(seconds=1)
+        run.lease_expires_at = db_utc_now() - timedelta(seconds=1)
         db.commit()
         try:
             journal.save_budget(compact["budget"])

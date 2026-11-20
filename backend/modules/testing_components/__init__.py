@@ -1,2 +1,0 @@
-"""Testing business components."""
-

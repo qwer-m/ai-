@@ -100,7 +100,7 @@ def test_expired_original_stage_has_no_new_model_session(records, monkeypatch):
     after = nodes[0].started_at + timedelta(seconds=stage.time_budget_seconds + 1)
     deadline = runtime._node_stage_deadline(run, stage, nodes[-1], first_started_at=nodes[0].started_at, now=after)
     run.run_context = {**run.run_context, "stage_deadline_at": deadline.isoformat()}
-    monkeypatch.setattr(runtime, "_now", lambda: after)
+    monkeypatch.setattr(runtime, "db_utc_now", lambda: after)
     with pytest.raises(runtime._RunDeadlineExceeded, match="阶段预算"):
         runtime._ensure_run_deadline(run, node_key=stage.node_key)
 
@@ -119,7 +119,7 @@ def test_real_repository_first_start_and_claim_do_not_reset_deadline_or_usage(re
         repo = AgentRunRepository(db)
         assert repo.first_node_started_at(run_id=run.id, node_key=stage.node_key) == nodes[0].started_at
         before = deepcopy(run.run_context)
-        monkeypatch.setattr(runtime, "_now", lambda: nodes[1].started_at)
+        monkeypatch.setattr(runtime, "db_utc_now", lambda: nodes[1].started_at)
         claimed = runtime._claim_run(repo, run_id=run.id, task_id=None)
         assert claimed.run_context["stage_deadline_at"] == before["stage_deadline_at"]
         assert claimed.run_context["usage"] == before["usage"]

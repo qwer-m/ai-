@@ -17,14 +17,6 @@ from chromadb.utils import embedding_functions
 from core.settings.config import settings
 from core.processing.semantic_chunking import split_semantic_text
 
-# 关闭 Chroma 遥测，避免本地开发环境出现无关 telemetry 报错
-os.environ.setdefault("ANONYMIZED_TELEMETRY", "False")
-os.environ.setdefault("CHROMA_SERVER_NO_ANALYTICS", "True")
-os.environ.setdefault(
-    "CHROMA_PRODUCT_TELEMETRY_IMPL", "core.cache_layer.chroma_telemetry.NoOpProductTelemetryClient"
-)
-os.environ.setdefault("CHROMA_TELEMETRY_IMPL", "core.cache_layer.chroma_telemetry.NoOpProductTelemetryClient")
-
 # 模块级日志器：统一输出向量库相关日志
 logger = logging.getLogger(__name__)
 
@@ -547,11 +539,7 @@ class ChromaClient:
 
         self.client = chromadb.PersistentClient(
             path=str(self.persist_path),
-            settings=Settings(
-                anonymized_telemetry=False,
-                chroma_product_telemetry_impl="core.cache_layer.chroma_telemetry.NoOpProductTelemetryClient",
-                chroma_telemetry_impl="core.cache_layer.chroma_telemetry.NoOpProductTelemetryClient",
-            ),
+            settings=Settings(anonymized_telemetry=False),
         )
 
         self.embedding_fn, embedding_provider = select_embedding_function()

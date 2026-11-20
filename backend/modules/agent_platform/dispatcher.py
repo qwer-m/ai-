@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import timedelta
 from typing import Any
 from uuid import uuid4
 
 from sqlalchemy.orm import Session
 
+from core.db import db_utc_now
 from core.db.database import SessionLocal
 from core.db.model_defs import AgentRun, AgentRunDispatch
 from core.settings.config import settings
@@ -46,7 +47,7 @@ def prepare_agent_run_dispatch(db: Session, run: AgentRun, *, reason: str, new_c
         previous.publish_token = None
         previous.publish_lease_expires_at = None
         db.add(previous)
-    now = datetime.utcnow()
+    now = db_utc_now()
     entry = AgentRunDispatch(
         run_id=run.id, generation=previous.generation + 1 if previous is not None else 1,
         task_id=str(uuid4()), reason=reason, status="pending", attempt_count=0,
@@ -92,7 +93,7 @@ def _claim_delivery(run_id: int) -> tuple[dict[str, Any] | None, TaskDispatchRes
         if run is None or entry is None:
             db.rollback()
             return None, _delivery_result(entry, status="pending", reason="dispatch_not_requested")
-        now = datetime.utcnow()
+        now = db_utc_now()
         if run.status != "pending" or run.task_id != entry.task_id:
             if entry.status in _DELIVERABLE:
                 entry.status = "consumed" if run.status == "running" and run.task_id == entry.task_id else "superseded"
@@ -143,7 +144,7 @@ def _complete_delivery(request: dict[str, Any], *, error: Exception | None) -> T
             return result
         entry.publish_token = None
         entry.publish_lease_expires_at = None
-        now = datetime.utcnow()
+        now = db_utc_now()
         if not _can_record_dispatched_task(run, entry.task_id) or run.status != "pending":
             entry.status = "consumed" if run.status == "running" and run.task_id == entry.task_id else "superseded"
             result = _delivery_result(entry, status=run.status, reason="run_already_observed", queued=run.status == "running")
@@ -201,7 +202,7 @@ def recover_pending_agent_dispatches(*, limit: int = 20) -> list[int]:
             AgentRun, AgentRun.id == AgentRunDispatch.run_id,
         ).filter(
             AgentRun.status == "pending", AgentRun.task_id == AgentRunDispatch.task_id,
-            AgentRunDispatch.status.in_(_DELIVERABLE), AgentRunDispatch.next_attempt_at <= datetime.utcnow(),
+            AgentRunDispatch.status.in_(_DELIVERABLE), AgentRunDispatch.next_attempt_at <= db_utc_now(),
         ).order_by(AgentRunDispatch.next_attempt_at, AgentRunDispatch.id).limit(max(1, int(limit))).all()
     recovered = []
     for (run_id,) in due_ids:

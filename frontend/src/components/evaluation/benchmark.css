@@ -1,0 +1,47 @@
+.benchmark { display: grid; grid-template-columns: minmax(0, 1fr); gap: .875rem; align-content: start; flex: 1 0 auto; color: var(--fd-text); }
+.benchmark h3 { font-size: 1.05rem; margin: 0 0 .8rem; }
+.benchmark-materials { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; }
+.benchmark-card { min-width: 0; padding: var(--fd-card-padding); }
+.benchmark-card label { display: block; font-size: .875rem; margin: .65rem 0 .3rem; }
+.benchmark-card details { margin-top: .6rem; }
+.benchmark-card summary { cursor: pointer; font-size: .875rem; }
+.benchmark-card p { margin: .6rem 0; }
+.benchmark-count { font-size: 1.4rem; font-weight: 700; }
+.benchmark-count small { font-size: .85rem; font-weight: 400; }
+.benchmark-cases { max-height: 18rem; overflow: auto; overflow-wrap: anywhere; }
+.benchmark-reference { display: flex; flex-direction: column; }
+.benchmark-binding { margin-top: auto; padding-top: 1rem; display: flex; align-items: center; flex-wrap: wrap; gap: .65rem; }
+.benchmark-binding label { margin: 0; font-weight: 600; }
+.benchmark-binding input { width: 8rem; }
+.benchmark-binding [role=status] { flex-basis: 100%; font-size: .875rem; }
+.benchmark-report-toolbar {
+  display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap;
+  gap: .65rem 1rem; padding-bottom: .65rem; border-bottom: 1px solid var(--bs-border-color);
+}
+.benchmark-report-tabs { gap: .25rem; }
+.benchmark-report-tabs .nav-link {
+  padding: .45rem .8rem; border: 0; border-radius: .4rem;
+  color: var(--fd-text-muted); background: transparent;
+}
+.benchmark-report-tabs .nav-link.active {
+  color: var(--fd-primary); background: color-mix(in srgb, var(--fd-primary) 10%, transparent); font-weight: 650;
+}
+.benchmark-report-tabs .nav-link:focus-visible { outline: 2px solid var(--fd-primary); outline-offset: 1px; }
+.benchmark-criteria .tab-pane { padding-top: .45rem; }
+.benchmark-criteria td, .benchmark-criteria th { min-width: 5rem; }
+@media (max-width: 900px) { .benchmark-materials { grid-template-columns: 1fr; } }
+
+.benchmark-coverage-rows { max-height: 32rem; overflow: auto; }
+.benchmark-coverage-rows thead { position: sticky; top: 0; z-index: 1; background: var(--bs-body-bg); }
+
+.coverage-section-bar {
+  display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap;
+  gap: .4rem 1rem; margin-bottom: .55rem;
+}
+.coverage-section-tabs { gap: .7rem; }
+.coverage-section-tabs .nav-link {
+  padding: .45rem .15rem; font-size: .875rem; background: transparent;
+  border: 0; border-bottom: 2px solid transparent; border-radius: 0; color: var(--fd-text-muted);
+}
+.coverage-section-tabs .nav-link.active { color: var(--fd-primary); border-bottom-color: currentColor; font-weight: 600; }
+.coverage-section-tabs .nav-link:focus-visible { outline: 2px solid var(--fd-primary); outline-offset: 1px; }

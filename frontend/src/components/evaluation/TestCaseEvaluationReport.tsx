@@ -1,260 +1,83 @@
-import {
-  CategoryScale,
-  Chart as ChartJS,
-  Legend,
-  LineElement,
-  LinearScale,
-  PointElement,
-  Title,
-  Tooltip,
-} from 'chart.js';
-import { Line } from 'react-chartjs-2';
-import { FaRobot } from 'react-icons/fa';
-import type { EvaluationHistoryPoint, QualityReport } from './state/types';
+import { useState } from 'react';
+import { Nav, Tab } from 'react-bootstrap';
+import { TestCaseFeedbackPanel } from './TestCaseFeedbackPanel';
+import type { QualityReportPayload, TestEvaluationArtifact } from './state/types';
 
-ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend);
-
-type Props = {
-  evalResult: QualityReport;
-  history: EvaluationHistoryPoint[];
+const coverage: Record<string, string> = { full: '完整', partial: '部分', missing: '缺失' };
+const changes: Record<string, string> = {
+  missing_points: '人工补足遗漏', modifications: '逻辑修正', hallucinations: '缺少需求依据',
 };
+const percent = (rate: number | null) => rate === null ? '—' : (rate * 100).toFixed(1) + '%';
 
-export function TestCaseEvaluationReport({
-  evalResult,
-  history,
-}: Props) {
-  const {
-    metrics,
-    defectAnalysis,
-    requirementBaseline,
-    summary,
-  } = evalResult;
-  const generatedCoverageRate = requirementBaseline?.generated_coverage_rate;
-  const modifiedCoverageRate = requirementBaseline?.modified_coverage_rate;
-  const requirementPoints = requirementBaseline?.requirement_points || [];
-  const aiRequirementGaps = requirementBaseline?.ai_requirement_gaps || [];
-  const humanRequirementGaps = requirementBaseline?.human_requirement_gaps || [];
-  const bothMissingPoints = requirementBaseline?.both_missing_points || [];
-  const aiUnanchoredPoints = requirementBaseline?.ai_unanchored_points || [];
-  const humanAddedValue = requirementBaseline?.human_added_value || [];
-  return (
-    <div className="evaluation-report-panel panel-card">
-      <h6 className="border-bottom pb-2 mb-3 evaluation-report-title">质量评估报告</h6>
+type Props = { artifact: TestEvaluationArtifact | null; projectId: number | null };
 
-      <div className="mb-4 evaluation-chart-wrap evaluation-report-chart-wrap">
-        <Line
-          data={{
-            labels: history.length > 0 ? history.map((h) => h.created_at) : ['Current'],
-            datasets: [
-              {
-                label: 'Precision',
-                data: history.length > 0 ? history.map((h) => h.precision) : [metrics.precision],
-                borderColor: '#0d6efd',
-                tension: 0.1,
-                pointRadius: 3,
-                borderWidth: 2,
-                hoverBorderWidth: 4,
-              },
-              {
-                label: 'Recall',
-                data: history.length > 0 ? history.map((h) => h.recall) : [metrics.recall],
-                borderColor: '#198754',
-                tension: 0.1,
-                pointRadius: 3,
-                borderWidth: 2,
-                hoverBorderWidth: 4,
-              },
-              {
-                label: 'F1 分数',
-                data: history.length > 0 ? history.map((h) => h.f1_score) : [metrics.f1_score],
-                borderColor: '#6f42c1',
-                tension: 0.1,
-                pointRadius: 3,
-                borderWidth: 2,
-                hoverBorderWidth: 4,
-              },
-              {
-                label: '覆盖交并比',
-                data: history.length > 0 ? history.map((h) => h.coverage_jaccard) : [metrics.coverage_jaccard],
-                borderColor: '#fd7e14',
-                tension: 0.1,
-                pointRadius: 3,
-                borderWidth: 2,
-                hoverBorderWidth: 4,
-              },
-            ],
-          }}
-          options={{
-            responsive: true,
-            maintainAspectRatio: false,
-            interaction: {
-              mode: 'nearest',
-              intersect: true,
-              axis: 'x',
-            },
-            plugins: {
-              legend: {
-                display: true,
-                position: 'top',
-                labels: { boxWidth: 10, usePointStyle: true, padding: 10, font: { size: 10 } },
-              },
-              title: { display: true, text: '质量评估历史趋势' },
-              tooltip: {
-                mode: 'index',
-                intersect: false,
-              },
-            },
-            scales: {
-              y: {
-                type: 'linear',
-                display: true,
-                position: 'left',
-                title: { display: true, text: '评分 (0-1)' },
-                min: 0,
-                max: 1,
-                beginAtZero: true,
-                grid: { drawOnChartArea: true },
-              },
-            },
-          }}
-        />
-      </div>
-
-      <div className="d-flex gap-2 mb-3 text-center evaluation-report-kpi-grid">
-        <div className="p-2 bg-white border rounded flex-fill evaluation-report-kpi">
-          <div className="fw-bold text-primary">{typeof metrics.precision === 'number' ? metrics.precision.toFixed(2) : '-'}</div>
-          <div className="x-small text-muted">精准率</div>
-        </div>
-        <div className="p-2 bg-white border rounded flex-fill evaluation-report-kpi">
-          <div className="fw-bold text-primary">{typeof metrics.recall === 'number' ? metrics.recall.toFixed(2) : '-'}</div>
-          <div className="x-small text-muted">召回率</div>
-        </div>
-        <div className="p-2 bg-white border rounded flex-fill evaluation-report-kpi">
-          <div className="fw-bold text-primary">{typeof metrics.f1_score === 'number' ? metrics.f1_score.toFixed(2) : '-'}</div>
-          <div className="x-small text-muted">F1 分数</div>
-        </div>
-        <div className="p-2 bg-white border rounded flex-fill evaluation-report-kpi">
-          <div className="fw-bold text-primary">
-            {typeof metrics.coverage_jaccard === 'number' ? metrics.coverage_jaccard.toFixed(2) : '-'}
-          </div>
-          <div className="x-small text-muted">覆盖交并比</div>
-        </div>
-      </div>
-
-      <div className="mb-2 evaluation-report-defect-head">
-        <strong>缺陷归因分析:</strong>
-      </div>
-
-      {requirementBaseline ? (
-        <div className="mb-3 p-2 border rounded bg-white evaluation-report-requirement-baseline">
-          <div className="d-flex align-items-center justify-content-between gap-2 mb-2">
-            <div>
-              <strong className="small">需求基准评估</strong>
-              <div className="x-small text-muted">以需求文档为锚点，同时检查 AI 生成用例和人工最终用例。</div>
-            </div>
-            <div className="d-flex gap-2 text-center">
-              <div className="px-2 py-1 border rounded bg-light">
-                <div className="fw-bold text-primary">{typeof generatedCoverageRate === 'number' ? generatedCoverageRate.toFixed(2) : '-'}</div>
-                <div className="x-small text-muted">AI覆盖</div>
-              </div>
-              <div className="px-2 py-1 border rounded bg-light">
-                <div className="fw-bold text-primary">{typeof modifiedCoverageRate === 'number' ? modifiedCoverageRate.toFixed(2) : '-'}</div>
-                <div className="x-small text-muted">人工覆盖</div>
-              </div>
-            </div>
-          </div>
-          {requirementBaseline.summary ? <div className="small text-secondary mb-2">{requirementBaseline.summary}</div> : null}
-          {requirementPoints.length ? (
-            <div className="small text-muted mb-2">计分 {requirementPoints.length} 组，共 {requirementBaseline.groups.length} 组</div>
-          ) : null}
-          <details className="mb-2">
-            <summary>逐组覆盖依据（含跳过项）</summary>
-            <p className="small">仅完整覆盖计入集合。以人工稿为对照，精准率和召回率分别按双方交集占生成稿、人工稿完整组的比例计算。</p>
-            {requirementBaseline.groups.map((group) => {
-              const labels: Record<string, string> = { full: '完整', partial: '部分', missing: '缺失' };
-              return <div className="border-top py-1 small" key={group.point}>
-                <strong>{group.point}</strong> · {group.excluded ? 'SKIP，排除计分' :
-                  `生成稿 ${labels[group.agent]} / 人工稿 ${labels[group.manual]}`}
-                <div>{[...group.case_ids, ...group.manual_refs].join('、')} {group.reason}</div>
-              </div>;
-            })}
-          </details>
-          {humanAddedValue.length ? (
-            <div className="mb-2 evaluation-report-defect-group">
-              <span className="badge bg-success text-white me-2">人工增益</span>
-              <ul className="mb-1 ps-3 mt-1 text-muted">
-                {humanAddedValue.map((item, index) => <li key={index}>{item}</li>)}
-              </ul>
-            </div>
-          ) : null}
-          {aiRequirementGaps.length ? (
-            <div className="mb-2 evaluation-report-defect-group">
-              <span className="badge bg-warning text-dark me-2">AI需求遗漏</span>
-              <ul className="mb-1 ps-3 mt-1 text-muted">
-                {aiRequirementGaps.map((item, index) => <li key={index}>{item}</li>)}
-              </ul>
-            </div>
-          ) : null}
-          {humanRequirementGaps.length ? (
-            <div className="mb-2 evaluation-report-defect-group">
-              <span className="badge bg-secondary text-white me-2">人工需复核</span>
-              <ul className="mb-1 ps-3 mt-1 text-muted">
-                {humanRequirementGaps.map((item, index) => <li key={index}>{item}</li>)}
-              </ul>
-            </div>
-          ) : null}
-          {bothMissingPoints.length ? (
-            <div className="mb-2 evaluation-report-defect-group">
-              <span className="badge bg-dark text-white me-2">双方遗漏</span>
-              <ul className="mb-1 ps-3 mt-1 text-muted">
-                {bothMissingPoints.map((item, index) => <li key={index}>{item}</li>)}
-              </ul>
-            </div>
-          ) : null}
-          {aiUnanchoredPoints.length ? (
-            <div className="mb-2 evaluation-report-defect-group">
-              <span className="badge bg-danger text-white me-2">AI无需求依据</span>
-              <ul className="mb-1 ps-3 mt-1 text-muted">
-                {aiUnanchoredPoints.map((item, index) => <li key={index}>{item}</li>)}
-              </ul>
-            </div>
-          ) : null}
-        </div>
-      ) : null}
-
-      {defectAnalysis.missing_points?.length ? (
-        <div className="mb-2 evaluation-report-defect-group">
-          <span className="badge bg-warning text-dark me-2">遗漏点（召回损失）</span>
-          <ul className="mb-1 ps-3 mt-1 text-muted">
-            {defectAnalysis.missing_points.map((item, index) => <li key={index}>{item}</li>)}
-          </ul>
-        </div>
-      ) : null}
-
-      {defectAnalysis.hallucinations?.length ? (
-        <div className="mb-2 evaluation-report-defect-group">
-          <span className="badge bg-danger text-white me-2">幻觉/多余（精度损失）</span>
-          <ul className="mb-1 ps-3 mt-1 text-muted">
-            {defectAnalysis.hallucinations.map((item, index) => <li key={index}>{item}</li>)}
-          </ul>
-        </div>
-      ) : null}
-
-      {defectAnalysis.modifications?.length ? (
-        <div className="mb-2 evaluation-report-defect-group">
-          <span className="badge bg-info text-white me-2">逻辑修正</span>
-          <ul className="mb-1 ps-3 mt-1 text-muted">
-            {defectAnalysis.modifications.map((item, index) => <li key={index}>{item}</li>)}
-          </ul>
-        </div>
-      ) : null}
-
-      <div className="mt-3 pt-2 border-top text-secondary evaluation-report-summary">
-        <strong>总结:</strong> {summary}
-      </div>
-      <div className="mt-2 text-end text-muted x-small">
-        <FaRobot className="me-1" /> 缺陷归因分析由 AI 模型生成
-      </div>
+export function TestCaseEvaluationReport({ artifact, projectId }: Props) {
+  return <Tab.Container id="benchmark-coverage" defaultActiveKey="overview" transition={false} mountOnEnter>
+    <div className="coverage-section-bar">
+      <Nav className="coverage-section-tabs" aria-label="覆盖率报告内容">
+        <Nav.Item><Nav.Link as="button" type="button" eventKey="overview">指标概览</Nav.Link></Nav.Item>
+        <Nav.Item><Nav.Link as="button" type="button" eventKey="evidence" disabled={!artifact}>逐组覆盖依据</Nav.Link></Nav.Item>
+        <Nav.Item><Nav.Link as="button" type="button" eventKey="feedback" disabled={!artifact}>反馈确认</Nav.Link></Nav.Item>
+      </Nav>
+      {artifact && <small className="text-muted">生成 Run #{artifact.source_run_id} · 评测 Run #{artifact.evaluation_run_id}</small>}
     </div>
-  );
+    <Tab.Content>
+      <Tab.Pane eventKey="overview">{artifact
+        ? <CoverageOverview report={artifact.evaluation} />
+        : <p className="small text-muted">评测完成后显示覆盖率指标。</p>}</Tab.Pane>
+      <Tab.Pane eventKey="evidence">{artifact && <CoverageEvidence report={artifact.evaluation} />}</Tab.Pane>
+      <Tab.Pane eventKey="feedback">{artifact && projectId !== null &&
+        <TestCaseFeedbackPanel projectId={projectId} sourceRunId={artifact.source_run_id} evaluationRunId={artifact.evaluation_run_id} />}</Tab.Pane>
+    </Tab.Content>
+  </Tab.Container>;
+}
+
+function CoverageOverview({ report }: { report: QualityReportPayload }) {
+  const base = report.requirement_baseline;
+  const total = base.requirement_points.length;
+  return <div>
+    <div className="row g-2">
+      {([
+        ['生成稿正文覆盖率', base.generated_coverage_rate, base.generated_coverage_count, total],
+        ['人工稿正文覆盖率', base.modified_coverage_rate, base.modified_coverage_count, total],
+        ['人工基准召回率', report.metrics.recall, base.covered_by_both.length, base.modified_coverage_count],
+      ] as const).map(([name, rate, count, denominator]) => <div className="col-12 col-md-4" key={name}>
+        <div className="border rounded p-3 h-100"><div className="small">{name}</div>
+          <strong className="fs-4">{percent(rate)}</strong> <span className="small text-muted">{count} / {denominator} 组</span>
+        </div>
+      </div>)}
+    </div>
+    <p className="small text-muted mt-2">正文 {base.groups.length} 组 · 计分 {total} 组 · 跳过 {base.groups.filter(group => group.excluded).length} 组</p>
+    <p>{base.summary}</p>
+  </div>;
+}
+
+function CoverageEvidence({ report }: { report: QualityReportPayload }) {
+  const [filter, setFilter] = useState('all');
+  const base = report.requirement_baseline;
+  const visible = base.groups.filter(group => {
+    if (filter === 'excluded') return group.excluded;
+    if (filter === 'changes') return !group.excluded && (group.difference !== 'none' || group.agent !== group.manual);
+    if (filter === 'gaps') return !group.excluded && group.agent !== 'full';
+    return true;
+  });
+  return <div>
+    <select aria-label="筛选正文要求" className="form-select form-select-sm mb-2 w-auto" value={filter} onChange={event => setFilter(event.target.value)}>
+      <option value="all">全部要求</option><option value="changes">双方差异</option>
+      <option value="gaps">生成稿覆盖不足</option><option value="excluded">跳过计分</option>
+    </select>
+    <div className="table-responsive benchmark-coverage-rows" role="region" aria-label="逐组正文覆盖明细" tabIndex={0}><table className="table table-sm align-middle small">
+      <caption className="visually-hidden">正文要求、双方用例引用与修改依据</caption>
+      <thead><tr>{['正文要求', '生成稿', '人工稿', '差异与缺口'].map(h => <th scope="col" key={h}>{h}</th>)}</tr></thead>
+      <tbody>{visible.map(group => <tr key={group.point}>
+        <th scope="row">{group.point}</th>
+        <td>{coverage[group.agent]}<div className="text-muted">{group.case_ids.join('、')}</div></td>
+        <td>{coverage[group.manual]}<div className="text-muted">{group.manual_refs.join('、')}</div></td>
+        <td>{group.excluded ? 'SKIP' : group.difference === 'none' && group.agent === 'full' && group.manual === 'full'
+          ? <span className="text-muted">—</span>
+          : <>{changes[group.difference] && <strong>{changes[group.difference]}</strong>}<div>{group.reason}</div></>}</td>
+      </tr>)}</tbody>
+    </table></div>
+    {!visible.length && <p role="status">没有符合筛选条件的正文要求。</p>}
+  </div>;
 }

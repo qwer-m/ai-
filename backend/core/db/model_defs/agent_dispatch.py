@@ -1,10 +1,10 @@
 """与运行状态同事务保存的任务投递意图，不授予 Worker 执行所有权。"""
 
-from datetime import datetime
 
 from sqlalchemy import CheckConstraint, Index
 from sqlalchemy.dialects.mysql import DATETIME
 
+from core.db import db_utc_now
 from ._shared import Base, Column, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
 
 
@@ -32,10 +32,10 @@ class AgentRunDispatch(Base):
     reason = Column(String(64), nullable=False)
     status = Column(String(24), nullable=False, default="pending")
     attempt_count = Column(Integer, nullable=False, default=0)
-    next_attempt_at = Column(_DISPATCH_DATETIME, nullable=False, default=datetime.utcnow)
+    next_attempt_at = Column(_DISPATCH_DATETIME, nullable=False, default=db_utc_now)
     publish_token = Column(String(64), nullable=True)
     publish_lease_expires_at = Column(_DISPATCH_DATETIME, nullable=True)
     published_at = Column(_DISPATCH_DATETIME, nullable=True)
     last_error = Column(Text, nullable=False, default="")
-    created_at = Column(_DISPATCH_DATETIME, nullable=False, default=datetime.utcnow)
-    updated_at = Column(_DISPATCH_DATETIME, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(_DISPATCH_DATETIME, nullable=False, default=db_utc_now)
+    updated_at = Column(_DISPATCH_DATETIME, nullable=False, default=db_utc_now, onupdate=db_utc_now)

@@ -20,6 +20,7 @@ from openai import BadRequestError
 from pydantic import ValidationError as PydanticValidationError
 from sqlalchemy.orm import Session
 
+from core.db import db_utc_now
 from core.ai.ai_client import get_client_for_user
 from core.db.database import SessionLocal
 from core.db.model_defs import (
@@ -155,10 +156,6 @@ class _AgentQuotaExceeded(RuntimeError):
     """单个 Agent 实例的请求或 Token 额度已经耗尽。"""
 
 
-def _now() -> datetime:
-    return datetime.utcnow()
-
-
 def _node_duration_seconds(node_run: AgentNodeRun) -> int | None:
     if node_run.started_at is None or node_run.finished_at is None:
         return None
@@ -182,7 +179,7 @@ def _remaining_run_seconds(run: AgentRun) -> float:
     active_deadlines = [value for value in (deadline, stage_deadline) if value is not None]
     if not active_deadlines:
         return float(settings.AGENT_RUN_DEADLINE_SECONDS)
-    return (min(active_deadlines) - _now()).total_seconds()
+    return (min(active_deadlines) - db_utc_now()).total_seconds()
 
 
 def _ensure_run_deadline(run: AgentRun, *, node_key: str = "") -> float:
@@ -195,7 +192,7 @@ def _ensure_run_deadline(run: AgentRun, *, node_key: str = "") -> float:
         if (
             stage_deadline is not None
             and (global_deadline is None or stage_deadline < global_deadline)
-            and stage_deadline <= _now()
+            and stage_deadline <= db_utc_now()
         ):
             raise _RunDeadlineExceeded(
                 f"Agent 节点已达到阶段预算{location}"
@@ -289,7 +286,7 @@ def _renew_run_lease(run_id: int, claim_token: str) -> str | None:
             return None
         if active_run.status != "running":
             return str(active_run.status)
-        now = _now()
+        now = db_utc_now()
         renew_run_lease(active_run, now=now, lease_seconds=RUN_LEASE_SECONDS, expected_claim_token=claim_token)
         heartbeat_db.add(active_run)
         heartbeat_db.commit()
@@ -312,7 +309,7 @@ def _renew_progress_lease(repo: AgentRunRepository, run: AgentRun) -> None:
                 raise _RunCancelled(f"Agent Run {run.id} 已取消")
             if run.status != "running" or run.claim_token != claim_token:
                 raise RunLeaseLost(f"Agent Run {run.id} 已不属于当前执行器")
-            renew_run_lease(run, now=_now(), lease_seconds=RUN_LEASE_SECONDS, expected_claim_token=claim_token)
+            renew_run_lease(run, now=db_utc_now(), lease_seconds=RUN_LEASE_SECONDS, expected_claim_token=claim_token)
     except (_RunCancelled, RunLeaseLost):
         # 终态由统一状态转换提交，失权 worker 只丢弃内存中的未提交快照。
         repo.db.rollback()
@@ -405,7 +402,7 @@ def _claim_run(
     if task_id and run.task_id and task_id != run.task_id:
         # 投递代际在待认领和失租接管时都必须一致；旧消息不能靠等待租约过期获得执行权。
         return None
-    now = _now()
+    now = db_utc_now()
     if (
         run.status == "running"
         and run.lease_expires_at is not None
@@ -1757,7 +1754,7 @@ def _execute_node_with_retry(
 
             latest.status = "failed"
             latest.error_message = _persistent_error_message(exc)
-            latest.finished_at = _now()
+            latest.finished_at = db_utc_now()
             latest_sdk_state = dict(latest.sdk_state or {})
             retry_state = RetryAttemptState.restore(latest_sdk_state)
             retry_state.attempt = latest.attempt
@@ -3069,11 +3066,11 @@ def _prepare_node_execution(
     run_context = deepcopy(run.run_context or {})
     previous = repo.latest_node_run(run_id=run.id, node_key=node.node_key)
     stage_deadline = _node_stage_deadline(run, node, previous,
-        first_started_at=repo.first_node_started_at(run_id=run.id, node_key=node.node_key), now=_now())
+        first_started_at=repo.first_node_started_at(run_id=run.id, node_key=node.node_key), now=db_utc_now())
     run_context["stage_deadline_at"] = stage_deadline.isoformat()
     run_context["remaining_seconds"] = max(
         0,
-        int((stage_deadline - _now()).total_seconds()),
+        int((stage_deadline - db_utc_now()).total_seconds()),
     )
     run.run_context = run_context
     _ensure_run_deadline(run, node_key=node.node_key)
@@ -3102,7 +3099,7 @@ def _prepare_node_execution(
             status="running",
             attempt=attempt,
             input_payload=node_input,
-            started_at=_now(),
+            started_at=db_utc_now(),
         )
         if previous is not None and (
             node.node_type == "agent_map" or previous_sdk_state.get("action_checkpoint")
@@ -3395,7 +3392,7 @@ def _complete_node_execution(
     run.run_context = latest_run_context
     setup.node_run.output_payload = output
     setup.node_run.status = "success"
-    setup.node_run.finished_at = _now()
+    setup.node_run.finished_at = db_utc_now()
     _event(
         repo,
         run,
@@ -3694,7 +3691,7 @@ def _revalidate_program_checkpoint(repo, run, node, definition_key):
     output = AgentOutputContract(deepcopy(node_input)).validate(definition, context, raw_output)
     current = repo.get_run_for_update(run_id=run.id)
     token = getattr(run, "_execution_claim_token", run.claim_token)
-    assert_run_claim(current, token, now=_now())
+    assert_run_claim(current, token, now=db_utc_now())
     current.run_context = {**dict(current.run_context or {}), "artifacts": deepcopy(context.artifacts)}
     current.current_node_key = node.node_key
     node.output_payload = deepcopy(output)
@@ -3789,7 +3786,7 @@ def _finalize_workflow_success(
         return {"status": current_run.status, "run_id": current_run.id}
     if current_run.claim_token != claimed_token:
         return {"status": "not_claimed", "run_id": current_run.id}
-    assert_run_claim(current_run, claimed_token, now=_now())
+    assert_run_claim(current_run, claimed_token, now=db_utc_now())
     current_run.output_payload = {
         "result": dependency_outputs[output_node_key],
     }
@@ -3799,7 +3796,7 @@ def _finalize_workflow_success(
         "success",
         event_type="run_completed",
         payload={"output_node_key": output_node_key},
-        now=_now(),
+        now=db_utc_now(),
     )
     repo.db.commit()
     return {"status": "success", "run_id": current_run.id}
@@ -3827,7 +3824,7 @@ def _handle_workflow_exception(
         repo.db.rollback()
         raise exc
     try:
-        assert_run_claim(run, claimed_token, now=_now())
+        assert_run_claim(run, claimed_token, now=db_utc_now())
     except RunLeaseLost:
         repo.db.rollback()
         raise
@@ -3839,7 +3836,7 @@ def _handle_workflow_exception(
     if latest is not None and latest.status == "running":
         latest.status = "failed"
         latest.error_message = _persistent_error_message(exc)
-        latest.finished_at = _now()
+        latest.finished_at = db_utc_now()
         repo.db.add(latest)
     transition_run(
         repo,
@@ -3847,7 +3844,7 @@ def _handle_workflow_exception(
         "failed",
         event_type="run_failed",
         error_message=_persistent_error_message(exc),
-        now=_now(),
+        now=db_utc_now(),
         payload={
             "error_type": type(exc).__name__,
             "failure_kind": _agent_failure_kind(exc),
@@ -3932,23 +3929,23 @@ def run_agent_workflow(
     except ConflictConfirmationRequired as pause:
         repo.db.rollback()
         current = repo.get_run_for_update(run_id=run_id)
-        assert_run_claim(current, claimed_token, now=_now())
+        assert_run_claim(current, claimed_token, now=db_utc_now())
         node_run = repo.latest_node_run(run_id=run_id, node_key=current.current_node_key)
         checkpoint = (node_run.sdk_state or {})["action_checkpoint"]
         approval = AgentApproval(
             run_id=run_id, node_run_id=node_run.id, status="pending",
             request_payload={"kind": "source_conflicts", "items": pause.items,
-                             "state_hash": checkpoint["state_hash"], "paused_at": _now().isoformat()},
+                             "state_hash": checkpoint["state_hash"], "paused_at": db_utc_now().isoformat()},
         )
         repo.db.add(approval)
         repo.db.flush()
         _set_execution_observations(node_run, pause)
         node_run.status = "waiting_approval"
-        node_run.finished_at = _now()
+        node_run.finished_at = db_utc_now()
         repo.db.add(node_run)
         transition_run(repo, current, "waiting_approval", event_type="conflicts_requested",
                        payload={"approval_id": approval.id, "count": len(pause.items)},
-                       node_run_id=node_run.id, now=_now())
+                       node_run_id=node_run.id, now=db_utc_now())
         repo.db.commit()
         return {"status": "waiting_approval", "run_id": run_id}
     except _RunCancelled:

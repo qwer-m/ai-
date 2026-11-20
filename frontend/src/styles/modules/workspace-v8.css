@@ -4,12 +4,6 @@ body.ui-overhaul-v4 .workbench-shell {
   position: relative;
 }
 
-body.ui-overhaul-v4 .dashboard-content-container-normal {
-  max-width: 1680px;
-  margin: 0 auto;
-  width: 100%;
-}
-
 body.ui-overhaul-v4 .workbench-meta-list {
   display: flex;
   align-items: center;
@@ -50,15 +44,13 @@ body.ui-overhaul-v4 .workbench-meta-pill.is-info {
 }
 
 body.ui-overhaul-v4 .workbench-shell .knowledge-toolbar-card,
-body.ui-overhaul-v4 .workbench-shell .rag-console,
 body.ui-overhaul-v4 .workbench-shell .evaluation-testcase-card,
 body.ui-overhaul-v4 .workbench-shell .evaluation-overview-card,
 body.ui-overhaul-v4 .workbench-shell .knowledge-content-area {
   border-color: color-mix(in srgb, var(--fd-border) 95%, transparent);
 }
 
-body.ui-overhaul-v4 .workbench-shell .knowledge-content-area,
-body.ui-overhaul-v4 .workbench-shell .rag-console {
+body.ui-overhaul-v4 .workbench-shell .knowledge-content-area {
   box-shadow: 0 14px 28px rgba(15, 23, 42, 0.08);
 }
 
@@ -70,8 +62,7 @@ body.ui-overhaul-v4 .evaluation-overview-grid .ui-kpi-card {
   border: 1px solid color-mix(in srgb, var(--fd-border) 88%, transparent);
 }
 
-body.theme-dark.ui-overhaul-v4 .workbench-shell .knowledge-content-area,
-body.theme-dark.ui-overhaul-v4 .workbench-shell .rag-console {
+body.theme-dark.ui-overhaul-v4 .workbench-shell .knowledge-content-area {
   box-shadow: 0 16px 34px rgba(2, 6, 23, 0.44);
 }
 

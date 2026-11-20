@@ -18,16 +18,12 @@ CRITICAL_IMPORTS = (
     "fastapi",
     "uvicorn",
     "celery",
-    "playwright",
-    "cv2",
-    "appium",
-    "selenium",
+    "chromadb",
+    "onnxruntime",
 )
 
 IMPORT_DISTRIBUTIONS = {
     "dotenv": "python-dotenv",
-    "cv2": "opencv-python-headless",
-    "appium": "Appium-Python-Client",
 }
 
 
@@ -35,7 +31,7 @@ def _project_paths() -> tuple[Path, Path, Path, Path]:
     backend_dir = Path(__file__).resolve().parent
     root_dir = backend_dir.parent
     requirements_path = backend_dir / "requirements.txt"
-    expected_venv = root_dir / ".venv"
+    expected_venv = root_dir / ".conda"
     marker_path = expected_venv / ".ai_test_platform_requirements.sha256"
     return root_dir, requirements_path, expected_venv, marker_path
 

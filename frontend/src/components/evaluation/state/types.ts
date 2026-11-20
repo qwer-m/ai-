@@ -1,32 +1,3 @@
-﻿
-import type { RunStatus } from '../../agent-platform/types';
-
-export type EvaluationView = 'root' | 'testcase' | 'ui' | 'api' | 'rag';
-
-export type EvaluationProps = {
-  projectId: number | null;
-  onLog: (msg: string) => void;
-  view?: EvaluationView;
-  evalGenerated: string;
-  setEvalGenerated: (v: string) => void;
-  evalModified: string;
-  setEvalModified: (v: string) => void;
-  evalResult: QualityReport | null;
-  setEvalResult: (v: QualityReport | null) => void;
-  uiEvalScript: string;
-  setUiEvalScript: (v: string) => void;
-  uiEvalExec: string;
-  setUiEvalExec: (v: string) => void;
-  uiEvalOutput: AutomationEvaluationReport | null;
-  setUiEvalOutput: (v: AutomationEvaluationReport | null) => void;
-  apiEvalScript: string;
-  setApiEvalScript: (v: string) => void;
-  apiEvalExec: string;
-  setApiEvalExec: (v: string) => void;
-  apiEvalOutput: AutomationEvaluationReport | null;
-  setApiEvalOutput: (v: AutomationEvaluationReport | null) => void;
-};
-
 export type GeneratedTestCase = {
   case_id: string;
   title: string;
@@ -37,7 +8,7 @@ export type GeneratedTestCase = {
     action: string;
     expected: string;
   }>;
-  tags: string[];
+  test_input: string;
 };
 
 export type QualityMetrics = {
@@ -53,10 +24,19 @@ export type DefectAnalysis = {
   modifications: string[];
 };
 
+export const assertionLabels = {
+  detects_fault: '可检出错误', missing_trigger: '缺少实际触发', unobservable: '预期不可判定',
+  wrong_oracle: '预期与需求矛盾', unclear_requirement: '需求依据不足', no_case: '无生成用例',
+} as const;
+
+export type AssertionEvidence = {
+  verdict: keyof typeof assertionLabels; case_id: string; steps: number[]; fault: string;
+};
+
 export type RequirementBaseline = {
   groups: Array<{
     point: string; agent: string; manual: string; case_ids: string[]; manual_refs: string[];
-    reason: string; difference: string; excluded: boolean;
+    reason: string; difference: string; excluded: boolean; assertion?: AssertionEvidence;
   }>;
   requirement_points: string[];
   ai_requirement_gaps: string[];
@@ -79,13 +59,6 @@ export type QualityReportPayload = {
   summary: string;
 };
 
-export type QualityReport = {
-  metrics: QualityMetrics;
-  defectAnalysis: DefectAnalysis;
-  requirementBaseline: RequirementBaseline;
-  summary: string;
-};
-
 // 评估页面只保留展示所需的产物投影，运行契约由 Agent 模块维护。
 export type TestEvaluationArtifact = {
   source_run_id: number;
@@ -97,62 +70,12 @@ export type TestEvaluationArtifact = {
   };
 };
 
-export type EvaluationRunRecord = {
-  run_id: number;
+
+export type EvaluationSource = {
   project_id: number;
-  status: RunStatus;
-  current_node_key: string | null;
-  parent_run_id: number | null;
-  requirement_text: string;
-  case_count: number;
-  test_cases: GeneratedTestCase[];
-  created_at: string;
-  started_at: string | null;
-  finished_at: string | null;
-  has_evaluation: boolean;
-  evaluation_artifact: TestEvaluationArtifact | null;
-};
-
-export type EvaluationHistoryPoint = {
-  id: string;
-  type: 'agent_run_evaluation';
-  created_at: string;
-  preview: string;
-  precision: number | null;
-  recall: number | null;
-  f1_score: number | null;
-  coverage_jaccard: number | null;
-};
-
-export type LoadingType = 'eval' | 'ui' | 'api' | null;
-
-export type ToastMessage = {
-  type: 'success' | 'error';
-  msg: string;
-};
-
-export type AutomationEvaluationStatus = 'success' | 'failed' | 'unknown';
-
-export type AutomationEvaluationCriterion = {
-  key: string;
-  name: string;
-  score: number;
-  analysis: string;
-};
-
-export type AutomationEvaluationCoverage = {
-  rate: number | null;
-  covered_items: string[];
-  missing_items: string[];
-  explanation: string;
-};
-
-export type AutomationEvaluationReport = {
-  summary: string;
-  overall_score: number;
-  execution_status: AutomationEvaluationStatus;
-  criteria: AutomationEvaluationCriterion[];
-  coverage: AutomationEvaluationCoverage;
-  risks: string[];
-  recommendations: string[];
+  document_id: number;
+  run_id: number;
+  requirement: string;
+  cases: GeneratedTestCase[];
+  evaluation: TestEvaluationArtifact | null;
 };

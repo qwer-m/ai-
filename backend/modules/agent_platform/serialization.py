@@ -333,15 +333,12 @@ def summarize_run_evaluation(
     artifact_metrics: dict[str, dict[str, float]] = {}
     artifact_metric_scales: dict[str, str] = {}
     evaluation_keys: list[str] = []
-    for artifact_key in ("test_evaluation", "automation_evaluation"):
-        artifact = artifacts.get(artifact_key)
-        if not isinstance(artifact, dict):
-            continue
+    artifact_key = "test_evaluation"
+    artifact = artifacts.get(artifact_key)
+    if isinstance(artifact, dict):
         evaluation_keys.append(artifact_key)
-        evaluation = artifact.get("evaluation") or artifact.get("result")
+        evaluation = artifact.get("evaluation")
         metrics = evaluation.get("metrics") if isinstance(evaluation, dict) else None
-        if metrics is None and isinstance(evaluation, dict) and "overall_score" in evaluation:
-            metrics = {"overall_score": evaluation.get("overall_score")}
         artifact_values: dict[str, float] = {}
         if isinstance(metrics, dict):
             for key, raw in metrics.items():
@@ -351,7 +348,7 @@ def summarize_run_evaluation(
                     business_metrics[f"{artifact_key}.{normalized_key}"] = value
                     artifact_values[normalized_key] = value
         artifact_metrics[artifact_key] = artifact_values
-        artifact_metric_scales[artifact_key] = "0-10" if artifact_key == "automation_evaluation" else "0-1"
+        artifact_metric_scales[artifact_key] = "0-1"
 
     if not approval_rows:
         intervention_status = "none"

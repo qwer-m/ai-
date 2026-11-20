@@ -14,13 +14,13 @@ import {
 } from 'react-icons/fa';
 import { useAgentWorkspace } from '../agent-platform/useAgentWorkspace';
 import { AgentErrorDetails, AgentNodeDetailModal, JsonView } from './AgentNodeDetailModal';
+import { GeneratedCaseList } from '../agent-platform/GeneratedCaseList';
 import { AgentConflictModal } from './AgentConflictModal';
-import { actualModelDisplay, executionAgent, executionDisplayStages, executionName, networkActivity, nodeProgress, workspaceExecution } from '../agent-platform/runPresentation';
+import { actualModelDisplay, executionAgent, executionDisplayStages, nodeProgress, workspaceExecution } from '../agent-platform/runPresentation';
 import type { ExecutionAgent } from '../agent-platform/runPresentation';
 import type {
   AgentNodeRun,
   AgentRun,
-  AgentRunEvent,
   RunStatus,
 } from '../agent-platform/types';
 
@@ -66,105 +66,10 @@ const parseStatusLabel = {
   failed: '解析失败',
 } as const;
 
-function eventLabel(event: AgentRunEvent): string {
-  const labels: Record<string, string> = {
-    run_started: '运行开始',
-    run_finished: '运行结束',
-    run_completed: '运行完成',
-    run_failed: '运行失败',
-    run_cancelled: '运行取消',
-    run_retry_spawned: '已创建重试运行',
-    run_created_from_retry: '已从失败任务继续',
-    run_history_pruned: '历史轨迹已清理',
-    run_dispatch_failed: '运行派发失败',
-    node_started: '节点开始',
-    node_finished: '节点结束',
-    node_completed: '节点完成',
-    node_failed: '节点失败',
-    node_retry_scheduled: '节点安排重试',
-    node_completed_batches: '节点批次完成',
-    tool_started: '工具开始',
-    tool_finished: '工具结束',
-    tool_failed: '工具失败',
-    map_item_started: '批次项开始',
-    map_item_completed: '批次项完成',
-    map_item_failed: '批次项失败',
-    agent_action_started: '自主行动开始',
-    agent_action_completed: '自主行动完成',
-    agent_action_resumed: '自主行动已恢复',
-    agent_action_failed: '自主行动失败',
-    agent_specialist_result_saved: '专家结果已保存',
-    approval_requested: '请求确认',
-    approval_decided: '确认完成',
-    conflicts_requested: '请求冲突确认',
-    approval_approved: '确认已通过',
-    approval_rejected: '确认已拒绝',
-    retry_scheduled: '安排重试',
-    run_recovery_deadline_expired: '恢复期限已过',
-    run_recovered: '运行已恢复',
-    run_dispatch_task_id_ignored: '忽略旧派发任务',
-    run_dispatch_failure_ignored: '忽略重复派发失败',
-    run_attempt_reset: '已重置运行尝试',
-    error: '执行异常',
-  };
-  return labels[event.event_type] || event.event_type;
-}
-
-function eventDetail(event: AgentRunEvent, run: AgentRun | null): string {
-  const payload = event.payload;
-  const agentKey = stringValue(payload.agent_key);
-  if (event.event_type === 'agent_specialist_result_saved' && agentKey) {
-    return `${executionName(run, 'agents', agentKey)} · 专业任务已验收`;
-  }
-  const toolKey = stringValue(payload.tool_key);
-  if (event.event_type.startsWith('agent_action_') && toolKey) {
-    return executionName(run, 'tools', toolKey);
-  }
-  for (const key of ['message', 'reason', 'node_key', 'tool_key']) {
-    const value = payload[key];
-    if (typeof value === 'string' && value.trim()) return value;
-  }
-  return `序号 ${event.sequence}`;
-}
-
-function localizedGeneratedCases(cases: Record<string, unknown>[]): Record<string, unknown> {
-  return {
-    测试用例: cases.map((testCase) => {
-      const actions: unknown[] = [];
-      const expectedResults: unknown[] = [];
-      const steps = Array.isArray(testCase.steps) ? testCase.steps : [];
-
-      for (const step of steps) {
-        if (step && typeof step === 'object' && !Array.isArray(step)) {
-          const stepValue = step as Record<string, unknown>;
-          actions.push(stepValue.action);
-          expectedResults.push(stepValue.expected);
-        } else {
-          actions.push(step);
-        }
-      }
-
-      return {
-        用例编号: testCase.case_id,
-        用例标题: testCase.title,
-        测试模块: testCase.module,
-        前置条件: testCase.preconditions,
-        执行步骤: actions,
-        预期结果: expectedResults,
-        用例级别: testCase.priority,
-      };
-    }),
-  };
-}
-
 function objectValue(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? value as Record<string, unknown>
     : {};
-}
-
-function stringValue(value: unknown): string {
-  return typeof value === 'string' ? value : '';
 }
 
 function formatDuration(startedAt: string | null | undefined, finishedAt: string | null | undefined, nowMs: number) {
@@ -343,8 +248,6 @@ export function AgentWorkspace({ projectId, onLog }: Props) {
   const execution = workspaceExecution(controller.activeRun, controller.selectedWorkflow);
   const workflowNodes = execution.definition?.execution_mode === 'dag' ? execution.definition.nodes : [];
   const hierarchyStages = executionDisplayStages(execution.definition);
-  const networkRun = agentRuns.find((node) => node.node_key === 'agent_network' && node.node_type === 'agent_network');
-  const activity = networkRun ? networkActivity(controller.activeRun, networkRun) : null;
   const currentNodeStage = controller.activeRun?.current_node_key
     ? hierarchyStages.find((stage) => stage.node_keys.includes(controller.activeRun?.current_node_key ?? ''))
     : undefined;
@@ -403,28 +306,20 @@ export function AgentWorkspace({ projectId, onLog }: Props) {
   }
 
   return (
-    <div className="agent-workspace">
-      <header className="agent-workspace-header">
-        <div>
-          <h2>Agent 测试生成</h2>
-          <span>上传真实需求，启动后查看按需激活的 Agent 与最终用例</span>
-        </div>
-      </header>
-
+    <div className="agent-workspace workbench-shell">
       {controller.error && (
         <div className="agent-workspace-error" role="alert" aria-live="assertive">
           {controller.error}
         </div>
       )}
 
-      <main className="agent-workspace-content">
+      <main className="agent-workspace-content" aria-label="Agent 测试生成">
         <section className="agent-intake-grid" aria-label="需求输入与实际 Agent 工作">
-          <article className="agent-card agent-source-card">
+          <article className="agent-card ui-section-card agent-source-card">
             <div className="agent-card-heading">
               <span className="agent-step-number" aria-hidden="true"><FaFileAlt /></span>
               <div>
                 <h3>需求来源</h3>
-                <p>上传本次生成使用的真实需求文档</p>
               </div>
             </div>
 
@@ -495,11 +390,10 @@ export function AgentWorkspace({ projectId, onLog }: Props) {
             <Form.Text>默认总额度 30 万 token，最长执行 20 分钟，每批最多编写 20 条用例。</Form.Text>
           </article>
 
-          <article className="agent-card agent-runtime-card">
+          <article className="agent-card ui-section-card agent-runtime-card">
           <div className="agent-section-heading">
             <div>
-              <h3>实际 Agent 工作</h3>
-              <p>仅展示本次生成中按需激活并真实执行的 Agent</p>
+              <h3>运行进度</h3>
             </div>
             <div className="agent-active-run-tools">
               <Button
@@ -561,9 +455,9 @@ export function AgentWorkspace({ projectId, onLog }: Props) {
                       <strong>{stage.label}</strong>
                       <small>{stage.description}</small>
                     </div>
-                    <Badge bg={businessStageVariant[stageState]}>
+                    {!(hierarchyStages.length === 1 && stageState === 'success' && controller.activeRun?.status === 'success') && <Badge bg={businessStageVariant[stageState]}>
                       {businessStageLabel[stageState]}
-                    </Badge>
+                    </Badge>}
                   </button>
                   {conflictApproval && controller.activeRun?.nodes.some((node) =>
                     node.id === conflictApproval.node_run_id && stage.node_keys.includes(node.node_key)) && (
@@ -573,24 +467,6 @@ export function AgentWorkspace({ projectId, onLog }: Props) {
                   </div>
                 );
               })}
-            </div>
-          )}
-
-          {controller.runEvents.length > 0 && (
-            <div className="agent-event-trace" aria-label="执行轨迹">
-              <div className="agent-event-trace-heading">
-                <strong>执行轨迹</strong>
-                <small>已接收 {controller.runEvents.length} 条事件</small>
-              </div>
-              <ol>
-                {controller.runEvents.slice(-8).reverse().map((event) => (
-                  <li key={`${event.run_id}-${event.sequence}`}>
-                    <span className="agent-event-sequence">#{event.sequence}</span>
-                    <span className="agent-event-type">{eventLabel(event)}</span>
-                    <span className="agent-event-detail">{eventDetail(event, controller.activeRun)}</span>
-                  </li>
-                ))}
-              </ol>
             </div>
           )}
 
@@ -681,32 +557,6 @@ export function AgentWorkspace({ projectId, onLog }: Props) {
                 </div>
               )}
 
-              {activity && (activity.action || activity.children.length > 0) && (
-                <section className="agent-instance-section" aria-label="主 Agent 工具与专业任务">
-                  {activity.action && (
-                    <div className="agent-instance-heading">
-                      <strong>{activity.action.status === 'started' ? '当前工具' : '最近工具'}：{activity.action.name}</strong>
-                      <span>
-                        {activity.action.status === 'completed' ? '已完成' : activity.action.status === 'failed' ? '失败' : '执行中'}
-                        {activity.action.completedChildCount !== null && activity.action.completedChildCount > 0 ? ` · 已验收 ${activity.action.completedChildCount} 个专业任务` : ''}
-                      </span>
-                    </div>
-                  )}
-                  {activity.children.length > 0 && (
-                    <>
-                      <div className="agent-instance-heading"><strong>专业任务执行回执</strong><span>按本次运行已保存并校验的结果统计</span></div>
-                      <div className="agent-instance-grid">
-                        {activity.children.map((child) => (
-                          <div className="agent-instance-card" key={child.key}>
-                            <strong>{child.name}</strong><span>已验收 {child.count} 个任务</span>
-                          </div>
-                        ))}
-                      </div>
-                    </>
-                  )}
-                </section>
-              )}
-
               {(controller.activeRun.approvals ?? []).filter((item) => item.status === 'pending' && item.request_payload.kind !== 'source_conflicts').map((approval) => (
                 <div className="agent-approval agent-current-approval" key={approval.id}>
                   <strong>审批 #{approval.id}</strong>
@@ -734,11 +584,11 @@ export function AgentWorkspace({ projectId, onLog }: Props) {
           </article>
         </section>
 
-        <section className="agent-card agent-cases-section">
+        <section className="agent-card ui-section-card agent-cases-section">
           <div className="agent-section-heading">
             <div>
               <h3>生成的测试用例</h3>
-              <p>这里展示已由平台校验并持久化的最终用例，不展示中间候选结果</p>
+              {cases.length > 0 && <p>生成 Run #{controller.activeRun?.id} · 已交付</p>}
             </div>
             <div className="agent-active-run-tools">
               <Button
@@ -755,9 +605,7 @@ export function AgentWorkspace({ projectId, onLog }: Props) {
           </div>
 
           {cases.length > 0 ? (
-            <div className="agent-cases-json" aria-label="最终测试用例 JSON">
-              <JsonView value={localizedGeneratedCases(cases)} />
-            </div>
+            <GeneratedCaseList key={controller.activeRun?.id} cases={cases} />
           ) : (
             <div className="agent-cases-empty">
               <FaRobot />

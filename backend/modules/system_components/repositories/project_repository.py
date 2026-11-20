@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Optional
 
+from sqlalchemy import MetaData, Table, inspect, select
 from sqlalchemy.orm import Session
 
 from core.db.model_defs import (
@@ -79,6 +80,30 @@ class ProjectRepository:
             .filter(model.project_id == project_id)
             .delete(synchronize_session=False)
         )
+
+    def delete_retired_project_rows(self, *, project_id: int) -> None:
+        """仅在显式删除项目时处理历史外键，新安装无需创建这些表。"""
+        connection = self.db.connection()
+        existing = set(inspect(connection).get_table_names())
+        metadata = MetaData()
+        if "rag_eval_runs" in existing:
+            runs = Table("rag_eval_runs", metadata, autoload_with=connection, resolve_fks=False)
+            if "rag_eval_sample_results" in existing:
+                results = Table("rag_eval_sample_results", metadata, autoload_with=connection, resolve_fks=False)
+                self.db.execute(results.delete().where(
+                    results.c.run_id.in_(select(runs.c.id).where(runs.c.project_id == project_id))
+                ))
+            self.db.execute(runs.delete().where(runs.c.project_id == project_id))
+
+        for name in ("ui_error_operations", "ui_executions", "api_executions", "recall_metrics",
+                     "standard_interfaces", "ui_test_cases"):
+            if name not in existing:
+                continue
+            table = Table(name, metadata, autoload_with=connection, resolve_fks=False)
+            belongs_to_project = table.c.project_id == project_id
+            if "parent_id" in table.c:
+                self.db.execute(table.update().where(belongs_to_project).values(parent_id=None))
+            self.db.execute(table.delete().where(belongs_to_project))
 
     def delete_agent_platform(self, *, project_id: int) -> None:
         """按外键依赖顺序删除项目下的 Agent 平台数据。"""

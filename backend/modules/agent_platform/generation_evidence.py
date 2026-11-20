@@ -5,6 +5,8 @@ from __future__ import annotations
 from copy import deepcopy
 import hashlib
 import math
+import re
+import unicodedata
 from typing import Any
 
 from sqlalchemy import select
@@ -16,6 +18,32 @@ from modules.knowledge_base_components.document.document_asset_service import (
 from .action_journal import action_state_hash
 from .checkpoint_storage import ArtifactStore, content_hash
 from .sources import SOURCE_ARTIFACT_KEY, SourceSnapshot, assert_same_source, persisted_source_snapshot
+
+
+def _east_asian_letter(character):
+    """识别无需空格分词的汉字、假名及部首；不吞掉韩文或西文词界。"""
+    name = unicodedata.name(character, "") if character else ""
+    return (name.startswith(("CJK UNIFIED IDEOGRAPH-", "CJK COMPATIBILITY IDEOGRAPH-", "HIRAGANA ", "KATAKANA "))
+            and unicodedata.category(character).startswith("L")) or name.startswith(("CJK RADICAL ", "KANGXI RADICAL "))
+
+
+def quote_presentation(text):
+    """引用容纳东亚文字的版面空白，保留西文词界、数字分隔和硬段落边界。"""
+    value = unicodedata.normalize("NFKC", text)
+
+    def whitespace(match):
+        gap = match.group(0)
+        if "\f" in gap:
+            return "\f"
+        if chr(0x2029) in gap or len(re.findall(r"\r\n|[\r\n\u2028]", gap)) > 1:
+            return "\n\n"
+        if "\t" in gap:
+            return "\t"
+        left = value[match.start() - 1] if match.start() else ""
+        right = value[match.end()] if match.end() < len(value) else ""
+        return "" if _east_asian_letter(left) or _east_asian_letter(right) else " "
+
+    return re.sub(r"\s+", whitespace, value).strip()
 
 
 def _text(value: Any, name: str) -> str:

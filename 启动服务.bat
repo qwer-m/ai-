@@ -1,5 +1,5 @@
 @echo off
-setlocal EnableExtensions EnableDelayedExpansion
+setlocal EnableExtensions DisableDelayedExpansion
 cd /d "%~dp0"
 
 echo ==========================================
@@ -7,23 +7,26 @@ echo       AI Test Platform Launcher
 echo ==========================================
 
 set "ROOT_DIR=%~dp0"
-set "VENV_DIR=%ROOT_DIR%.venv"
-set "PYTHON_EXE=%VENV_DIR%\Scripts\python.exe"
-if not exist "!PYTHON_EXE!" (
-    echo Project virtual environment not found. Creating: !VENV_DIR!
-    python -m venv "!VENV_DIR!"
+set "ENV_DIR=%ROOT_DIR%.conda"
+set "PYTHON_EXE=%ENV_DIR%\python.exe"
+if not exist "%PYTHON_EXE%" (
+    where micromamba >nul 2>&1
     if errorlevel 1 (
-        echo [ERROR] Failed to create project virtual environment.
+        echo [ERROR] Install micromamba, then run this launcher to create the Python 3.15.2 environment.
+        pause
+        exit /b 1
+    )
+    micromamba create --yes --prefix "%ENV_DIR%" --file "%ROOT_DIR%environment.yml"
+    if errorlevel 1 (
         pause
         exit /b 1
     )
 )
 
-REM Never fall back to global Python; keep all dependencies inside the project.
-"!PYTHON_EXE!" -V >nul 2>&1
+set "PATH=%ENV_DIR%;%ENV_DIR%\Scripts;%ENV_DIR%\Library\bin;%PATH%"
+"%PYTHON_EXE%" -c "import sys; raise SystemExit(sys.version_info[:3] != (3, 15, 2))"
 if errorlevel 1 (
-    echo [ERROR] Project virtual environment Python is unavailable: !PYTHON_EXE!
-    echo [ERROR] Recreate .venv before starting the platform.
+    echo [ERROR] The project environment must use Python 3.15.2: %PYTHON_EXE%
     pause
     exit /b 1
 )
@@ -36,11 +39,11 @@ if not exist "%ROOT_DIR%backend\start_dev.py" (
 )
 
 echo Starting development environment...
-echo Using Python: !PYTHON_EXE!
+echo Using Python: %PYTHON_EXE%
 echo.
 
 set "PYTHONUNBUFFERED=1"
-"!PYTHON_EXE!" "%ROOT_DIR%backend\bootstrap_dependencies.py"
+"%PYTHON_EXE%" "%ROOT_DIR%backend\bootstrap_dependencies.py"
 if errorlevel 1 (
     echo.
     echo [ERROR] Python dependency synchronization failed. Services were not started.
@@ -49,7 +52,7 @@ if errorlevel 1 (
 )
 
 pushd "%ROOT_DIR%backend"
-"!PYTHON_EXE!" start_dev.py
+"%PYTHON_EXE%" start_dev.py
 set "EXIT_CODE=%ERRORLEVEL%"
 popd
 

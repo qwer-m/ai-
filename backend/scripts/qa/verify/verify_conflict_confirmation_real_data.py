@@ -2,7 +2,6 @@
 
 import argparse
 from copy import deepcopy
-from datetime import datetime
 import json
 from pathlib import Path
 import sys
@@ -11,6 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 from sqlalchemy import text
 
+from core.db import db_utc_now
 from core.db.database import SessionLocal
 from core.db.model_defs import AgentApproval, AgentNodeRun, AgentRun
 from modules.agent_platform.action_journal import action_state_hash
@@ -35,7 +35,7 @@ def verify(run_id, output):
         items = approval.request_payload["items"]
         assert items and all(all(fact["assertion"] for fact in item["facts"]) for item in items)
         current_storage = checkpoint.get("version") == 3 and checkpoint.get("storage") == "artifact-journal-v1"
-        now = datetime.utcnow()
+        now = db_utc_now()
         rejection_messages = []
         for invalid in ({}, {item["id"]: " " for item in items}):
             try:

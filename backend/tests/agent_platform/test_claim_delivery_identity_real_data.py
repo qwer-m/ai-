@@ -1,12 +1,13 @@
 """以真实 Run/Celery 身份的隔离副本验证认领，不写线上业务记录或调用模型。"""
 
 from copy import deepcopy
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 import pytest
 from sqlalchemy import create_engine, select, text
 from sqlalchemy.orm import Session
 
+from core.db import db_utc_now
 from core.db.database import SessionLocal
 from core.db.model_defs import AgentRun, AgentRunEvent
 from modules.agent_platform import runtime
@@ -37,7 +38,7 @@ def isolated_run(real_delivery_metadata, *, status, lease_expired):
     record, other_task_id = real_delivery_metadata
     copied = deepcopy(record)
     copied["status"] = status
-    copied["lease_expires_at"] = datetime.utcnow() + timedelta(seconds=-60 if lease_expired else 60)
+    copied["lease_expires_at"] = db_utc_now() + timedelta(seconds=-60 if lease_expired else 60)
     engine = create_engine("sqlite+pysqlite:///:memory:")
     AgentRun.__table__.create(engine)
     AgentRunEvent.__table__.create(engine)
@@ -73,7 +74,7 @@ def test_expected_real_delivery_can_claim_pending_or_expired_run(real_delivery_m
         assert claimed is not None and claimed.status == "running"
         assert claimed.task_id == copied["task_id"]
         assert claimed.claim_token and claimed.claim_token != copied["claim_token"]
-        assert claimed.lease_expires_at > datetime.utcnow()
+        assert claimed.lease_expires_at > db_utc_now()
         assert claimed.input_payload == copied["input_payload"]
         assert claimed.output_payload == copied["output_payload"]
         events = db.scalars(select(AgentRunEvent)).all()

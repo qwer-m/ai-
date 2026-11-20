@@ -9,8 +9,6 @@ from core.processing.utils import log_to_db
 
 class WorkflowKind(str, Enum):
     TEST_GENERATION = "test_generation"
-    UI_AUTOMATION = "ui_automation"
-    API_AUTOMATION = "api_automation"
     EVALUATION = "evaluation"
 
 

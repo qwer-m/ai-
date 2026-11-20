@@ -9,12 +9,7 @@ from sqlalchemy import text
 
 from core.db.database import SessionLocal
 from core.db.model_defs import KnowledgeDocument, Project, User
-from modules.automation_components.services.api_automation_service import APIAutomationService
-from modules.automation_components.services.ui_automation_service import UIAutomationService
-from modules.automation_components.services.ui_test_case_service import UITestCaseService
 from modules.knowledge_base_components.repositories.knowledge_document_repository import USER_MANAGED_DOC_TYPES
-from modules.system_components.repositories.project_repository import ProjectRepository
-from modules.testing_components.services.standard_interface_service import StandardInterfaceService
 from routers.orchestration.evaluation_history_routes import get_evaluation_history
 from routers.orchestration.evaluation_shared import get_owned_project
 from routers.system import common
@@ -131,18 +126,6 @@ def ownership_sample(real_db):
     if other_user is None:
         pytest.skip("真实数据库不足两名用户，无法验证跨用户权限")
     return project, _owner(real_db, project.id), other_user
-
-
-def test_services_share_project_repository_and_request_session(real_db, ownership_sample):
-    project, owner, other_user = ownership_sample
-    for service_type in (APIAutomationService, UIAutomationService, UITestCaseService, StandardInterfaceService):
-        service = service_type(real_db)
-        assert type(service.projects) is ProjectRepository
-        assert service.projects.db is service.repo.db is real_db
-        assert service.projects.get_owned_project(project_id=project.id, user_id=owner.id) is project
-        assert service.projects.get_owned_project(project_id=project.id, user_id=other_user.id) is None
-        assert not hasattr(service.repo, "get_owned_project")
-    print({"project_id": project.id, "owner_id": owner.id, "other_user_id": other_user.id, "service_count": 4})
 
 
 def test_project_permission_contracts_survive_repository_merge(real_db, ownership_sample):

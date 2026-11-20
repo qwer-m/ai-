@@ -6,7 +6,7 @@ reservation/usage 配对。并发测试回放真实专业结果，不生成虚�
 
 import asyncio
 from copy import deepcopy
-from datetime import datetime, timedelta
+from datetime import timedelta
 import json
 from pathlib import Path
 from types import SimpleNamespace
@@ -15,6 +15,7 @@ import pytest
 from agents import RunContextWrapper
 from agents.usage import Usage
 
+from core.db import db_utc_now
 from modules.agent_platform.autonomous_budget import AutonomousBudgetHooks, AgentExecutionBudgetExceeded
 from modules.agent_platform.lifecycle import assert_run_claim, RunLeaseLost
 from modules.agent_platform.registry import ToolExecutionContext
@@ -137,12 +138,12 @@ def test_waiting_admission_rechecks_claim_after_wakeup_before_charging(real_reco
         # 仅在隔离执行元数据中注入代际变化；两个标识均来自真实投递记录。
         own = identity["task_id"]
         row = SimpleNamespace(id=identity["id"], status="running", claim_token=own,
-                              lease_expires_at=datetime.utcnow() + timedelta(minutes=1))
+                              lease_expires_at=db_utc_now() + timedelta(minutes=1))
         before = hooks.snapshot()
         checks = []
 
         def guard():
-            assert_run_claim(row, own, now=datetime.utcnow())
+            assert_run_claim(row, own, now=db_utc_now())
             checks.append("valid")
 
         waiting = asyncio.create_task(hooks._reserve_request(waiting_context, target, before_admission=guard))

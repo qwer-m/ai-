@@ -3,7 +3,9 @@ version: '3.8'
 services:
   # Main FastAPI Application
   app:
-    build: .
+    build:
+      context: ../..
+      dockerfile: backend/deploy/Dockerfile
     image: ai_test_platform:latest
     container_name: ai_test_platform_app
     restart: always
@@ -29,11 +31,13 @@ services:
       retries: 3
       start_period: 20s
     volumes:
-      - .:/app
+      - ..:/app
 
   # Celery Worker
   worker:
-    build: .
+    build:
+      context: ../..
+      dockerfile: backend/deploy/Dockerfile
     image: ai_test_platform:latest # Reuse same image
     container_name: ai_test_platform_worker
     restart: always
@@ -56,11 +60,13 @@ services:
       timeout: 20s
       retries: 3
     volumes:
-      - .:/app
+      - ..:/app
 
   # Celery Beat
   beat:
-    build: .
+    build:
+      context: ../..
+      dockerfile: backend/deploy/Dockerfile
     image: ai_test_platform:latest
     container_name: ai_test_platform_beat
     restart: always

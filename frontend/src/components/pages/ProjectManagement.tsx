@@ -173,29 +173,29 @@ export function ProjectManagement({ projects, loading, error, onRefresh, onSelec
   );
 
   return (
-    <div className="bento-grid h-100 align-content-start project-page-shell">
-      <div className="bento-card col-span-12 d-flex align-items-center justify-content-end gap-3 project-page-header">
+    <div className="d-flex flex-column project-page-shell workbench-shell">
+      <div className="ui-section-card d-flex flex-wrap align-items-center gap-2 project-page-header">
         <InputGroup className="project-search-box">
           <InputGroup.Text><FaSearch /></InputGroup.Text>
-          <Form.Control value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} placeholder="搜索项目名称或描述" />
+          <Form.Control aria-label="搜索项目" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} placeholder="搜索项目名称或描述" />
         </InputGroup>
+        <Button onClick={openCreate}>新建项目</Button>
       </div>
 
       {error ? (
-        <div className="col-span-12">
+        <div>
           <Alert variant="danger" className="mb-0">{error}</Alert>
         </div>
       ) : null}
 
       {loading ? (
-        <div className="col-span-12 ui-section-card text-center py-5 text-muted">加载项目数据中...</div>
+        <div className="ui-section-card text-center py-5 text-muted">加载项目数据中...</div>
       ) : filteredProjects.length === 0 ? (
-        <div className="col-span-12 ui-section-card text-center py-5">
+        <div className="ui-section-card text-center py-5">
           <div className="text-muted mb-2">暂无匹配项目</div>
-          <Button variant="outline-primary" onClick={openCreate}>创建第一个项目</Button>
         </div>
       ) : (
-        <div className="col-span-12 ui-section-card p-0 overflow-hidden">
+        <div className="ui-section-card p-0 overflow-hidden">
           <div className="table-responsive project-page-table-wrap">
             <Table hover className="mb-0 align-middle project-page-table">
               <thead>

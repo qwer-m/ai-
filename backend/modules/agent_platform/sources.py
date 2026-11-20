@@ -34,6 +34,8 @@ class RunSourceRecord(NamedTuple):
 
 @dataclass(frozen=True)
 class SourceSnapshot:
+    DOCUMENT_TYPES = ("requirement", "product_requirement", "incomplete")
+
     kind: str
     content_hash: str
     document_id: int | None = None
@@ -70,7 +72,7 @@ class SourceSnapshot:
 
     @classmethod
     def from_document(cls, document: Any) -> SourceSnapshot:
-        if document.doc_type not in {"requirement", "product_requirement", "incomplete"}:
+        if document.doc_type not in cls.DOCUMENT_TYPES:
             raise ValueError("文档类型不允许作为需求来源")
         if document.parse_status != "success":
             raise ValueError("需求文档尚未解析成功")
@@ -139,6 +141,7 @@ def latest_successful_run_for_source(
     user_id: int,
     workflow_key: str,
     source: SourceSnapshot,
+    document_ids: set[int] | None = None,
 ) -> AgentRun | None:
     """按真实来源查找可复用结果，成功状态还必须对应已持久化的用例产物。"""
     from .definition_repository import AgentDefinitionRepository
@@ -160,7 +163,11 @@ def latest_successful_run_for_source(
         if run is None:
             continue
         artifact = persisted_test_generation_result(run)
-        if isinstance(artifact, dict) and isinstance(artifact.get("test_cases"), list):
+        if document_ids is not None:
+            snapshot = persisted_source_snapshot(run)
+            if snapshot is None or snapshot.document_id not in document_ids:
+                continue
+        if isinstance(artifact, dict) and isinstance(artifact.get("test_cases"), list) and artifact["test_cases"]:
             return run
     return None
 

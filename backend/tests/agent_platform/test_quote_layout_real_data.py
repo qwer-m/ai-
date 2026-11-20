@@ -104,7 +104,7 @@ def test_actual_approval_answer_remains_distinct_from_original_unresolved_questi
 
 @pytest.mark.parametrize("layout,continuous", [
     ("甲\n乙", "甲乙"),
-    ("甲\u3000乙", "甲乙"),
+    ("甲　乙", "甲乙"),
     ("⻚\n面", "⻚面"),
     ("学習\n結果", "学習結果"),
     ("规则 ——", "规则——"),

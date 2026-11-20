@@ -1,4 +1,4 @@
-from ._shared import Base, Column, Integer, String, Boolean, JSON, DateTime, ForeignKey, Float, Text, func, UniqueConstraint, relationship, backref, LONGTEXT
+from ._shared import Base, Column, Integer, String, Boolean, JSON, DateTime, ForeignKey, Text, func, UniqueConstraint, relationship, backref, LONGTEXT
 
 class User(Base):
     """
@@ -95,119 +95,6 @@ class Project(Base):
     # 层级关系 (自关联)
     children = relationship("Project", backref=backref('parent', remote_side=[id]))
 
-class UIExecution(Base):
-    """
-    UI自动化执行记录模型 (UI Execution Model)
-    
-    存储UI自动化测试的执行请求、生成的脚本、以及执行结果。
-    关联到具体的测试用例 (KnowledgeDocument)。
-    """
-    __tablename__ = "ui_executions"
-
-    # 主键ID
-    id = Column(Integer, primary_key=True, index=True)
-    
-    # 关联用户ID
-    user_id = Column(Integer, ForeignKey('users.id'), nullable=True)
-
-    # 关联的项目ID
-    project_id = Column(Integer, ForeignKey('projects.id'), nullable=True)
-    
-    # 关联的测试用例ID（可选）
-    test_case_id = Column(Integer, ForeignKey('knowledge_documents.id'), nullable=True, comment="关联的测试用例ID")
-    
-    # 测试URL（Web自动化）
-    url = Column(String(255), nullable=True, comment="测试目标URL")
-    
-    # App包名或路径（App自动化）
-    app_info = Column(String(255), nullable=True, comment="App包名或路径")
-    
-    # 任务描述
-    task_description = Column(Text, nullable=False, comment="具体的执行任务描述")
-    
-    # 自动化类型：web（Web自动化）或app（App自动化）
-    automation_type = Column(String(20), nullable=False, default="web", comment="自动化类型 (web/app)")
-    
-    # 生成的自动化脚本
-    generated_script = Column(Text, nullable=True, comment="生成的Playwright/Appium脚本")
-    
-    # 截图路径列表 (JSON)
-    screenshot_paths = Column(JSON, nullable=True, comment="执行过程中的截图路径列表")
-    
-    # 执行结果
-    execution_result = Column(Text, nullable=True, comment="脚本执行的stdout/stderr")
-    
-    # 执行状态：success（成功）、failed（失败）、pending（待执行）
-    status = Column(String(20), nullable=False, default="pending", comment="执行状态")
-    
-    # 创建时间
-    created_at = Column(DateTime, server_default=func.now())
-
-class UIErrorOperation(Base):
-    """
-    UI自动化错误操作分析模型 (UI Error Operation Model)
-    
-    用于存储UI自动化测试失败时的详细分析，包括失败操作与正确操作的对比。
-    用于自愈 (Self-Healing) 或报告分析。
-    """
-    __tablename__ = "ui_error_operations"
-
-    # 主键ID
-    id = Column(Integer, primary_key=True, index=True)
-    
-    # 关联用户ID
-    user_id = Column(Integer, ForeignKey('users.id'), nullable=True)
-
-    # 关联的项目ID
-    project_id = Column(Integer, ForeignKey('projects.id'), nullable=True)
-    
-    # 关联的UI执行记录ID
-    ui_execution_id = Column(Integer, ForeignKey('ui_executions.id'), nullable=True)
-    
-    # 失败操作描述
-    failed_operation = Column(Text, nullable=False, comment="导致失败的操作描述")
-    
-    # 正确操作描述
-    correct_operation = Column(Text, nullable=True, comment="建议的正确操作")
-    
-    # AI对比分析结果
-    ai_comparison_result = Column(Text, nullable=True, comment="AI分析的错误原因")
-    
-    # 创建时间
-    created_at = Column(DateTime, server_default=func.now())
-
-class APIExecution(Base):
-    """
-    API测试执行记录模型 (API Execution Model)
-    
-    存储API测试的执行请求、生成的脚本、以及执行结果。
-    """
-    __tablename__ = "api_executions"
-
-    # 主键ID
-    id = Column(Integer, primary_key=True, index=True)
-    
-    # 关联用户ID
-    user_id = Column(Integer, ForeignKey('users.id'), nullable=True)
-
-    # 关联的项目ID
-    project_id = Column(Integer, ForeignKey('projects.id'), nullable=True)
-    
-    # API测试需求
-    requirement = Column(Text, nullable=False, comment="API测试需求描述")
-    
-    # 生成的测试脚本
-    generated_script = Column(Text, nullable=True, comment="生成的Python API测试脚本")
-    
-    # 执行结果
-    execution_result = Column(Text, nullable=True, comment="脚本执行结果")
-
-    # 结构化报告 (JSON)
-    structured_report = Column(JSON, nullable=True, comment="结构化的测试报告数据")
-    
-    # 创建时间
-    created_at = Column(DateTime, server_default=func.now())
-
 class LogEntry(Base):
     """
     操作日志模型 (Log Entry Model)
@@ -230,35 +117,6 @@ class LogEntry(Base):
     
     # 日志内容
     message = Column(Text, nullable=False, comment="日志详情")
-    
-    # 创建时间
-    created_at = Column(DateTime, server_default=func.now())
-
-class RecallMetric(Base):
-    """
-    RAG召回率指标模型 (Recall Metric Model)
-    
-    用于存储RAG系统的检索质量评估结果 (召回率)。
-    """
-    __tablename__ = "recall_metrics"
-
-    # 主键ID
-    id = Column(Integer, primary_key=True, index=True)
-    
-    # 关联用户ID
-    user_id = Column(Integer, ForeignKey('users.id'), nullable=True)
-
-    # 关联的项目ID
-    project_id = Column(Integer, ForeignKey('projects.id'), nullable=True)
-    
-    # 检索到的项目列表
-    retrieved_items = Column(JSON, nullable=True, comment="检索到的文档ID列表")
-    
-    # 相关项目列表
-    relevant_items = Column(JSON, nullable=True, comment="实际相关的文档ID列表 (Ground Truth)")
-    
-    # 召回率分数
-    recall_score = Column(Float, nullable=False, comment="计算出的召回率")
     
     # 创建时间
     created_at = Column(DateTime, server_default=func.now())

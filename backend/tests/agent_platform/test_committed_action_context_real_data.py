@@ -14,6 +14,7 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
+from core.db import db_utc_now
 from core.db.model_defs import (
     AgentActionReceiptRecord, AgentArtifactBlob, AgentJournalBranch, AgentNodeRun,
     AgentRun, AgentRunEvent, AgentValidatedCallRecord,
@@ -52,7 +53,7 @@ def committed(real):
         # 只在内存隔离库创建执行权控制元数据；业务来源、候选正文均用真实fixture。
         claim = new_claim_token()
         metadata.update(status="running", finished_at=None, claim_token=claim,
-                        lease_expires_at=datetime.utcnow() + timedelta(hours=1))
+                        lease_expires_at=db_utc_now() + timedelta(hours=1))
         frozen = deepcopy(real["frozen_run_context"])
         frozen["logical_task_id"] = "cpu-context-" + real["current_initial_state"]["source_ref"]["content_hash"]
         run = AgentRun(**metadata, input_payload=deepcopy(real["original_run_input"]), run_context=frozen, output_payload={})

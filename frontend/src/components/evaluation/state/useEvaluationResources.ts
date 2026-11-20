@@ -1,186 +1,112 @@
 import { useEffect, useRef, useState } from 'react';
-import {
-  fetchEvaluationHistory,
-  fetchAgentRunHistory,
-} from './evaluationService';
-import type {
-  EvaluationHistoryPoint,
-  EvaluationRunRecord,
-  EvaluationView,
-  LoadingType,
-  QualityReport,
-  ToastMessage,
-} from './types';
+import { getRequirementDocumentParseStatus, listRequirementDocuments, uploadRequirementDocument } from '../../agent-platform/agentApi';
+import { currentRequirement, rememberRequirement } from '../../agent-platform/requirementSelection';
+import type { RequirementDocumentOption } from '../../agent-platform/types';
+import { getErrorText } from '../../../utils/api';
+import { fetchEvaluationSource } from './evaluationService';
+import type { EvaluationSource } from './types';
 
-const EVALUATION_DRAFT_DB = 'ai-test-platform-evaluation-drafts';
-const EVALUATION_DRAFT_FILE_STORE = 'compare-files';
+export function useEvaluationResources(projectId: number, visible: boolean) {
+  const [documents, setDocuments] = useState<RequirementDocumentOption[]>([]);
+  const [selection, select] = useState<{ documentId: number; runId?: number } | null>(null);
+  const [source, setSource] = useState<EvaluationSource | null>(null);
+  const [draftId, setDraftId] = useState<string | null>(null);
+  const [runError, setRunError] = useState('');
+  const [documentError, setDocumentError] = useState('');
+  const [uploading, setUploading] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [reload, setReload] = useState(0);
+  const document = documents.find(row => row.id === selection?.documentId);
 
-function openEvaluationDraftDb(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    const request = window.indexedDB.open(EVALUATION_DRAFT_DB, 1);
-    request.onupgradeneeded = () => {
-      const db = request.result;
-      if (!db.objectStoreNames.contains(EVALUATION_DRAFT_FILE_STORE)) {
-        db.createObjectStore(EVALUATION_DRAFT_FILE_STORE);
+  const selectedId = useRef<number | null>(null);
+  useEffect(() => {
+    if (!visible) return;
+    let active = true;
+    setDocumentError('');
+    listRequirementDocuments(projectId).then(rows => {
+      if (!active) return;
+      setDocuments(rows);
+      const previous = currentRequirement(projectId);
+      const chosen = rows.find(row => row.id === previous) ?? rows.reduce<RequirementDocumentOption | undefined>((latest, row) => !latest || row.id > latest.id ? row : latest, undefined);
+      if (chosen && chosen.id !== selectedId.current) {
+        selectedId.current = chosen.id;
+        setSource(null);
+        setDraftId(null);
+        setRunError('');
+        select({ documentId: chosen.id });
+      }
+    }).catch(error => { if (active) setDocumentError(getErrorText(error)); });
+    return () => { active = false; };
+  }, [projectId, reload, visible]);
+
+  useEffect(() => {
+    if (!document || !['pending', 'parsing'].includes(document.parse_status)) return;
+    let active = true;
+    const poll = async () => {
+      try {
+        const status = await getRequirementDocumentParseStatus(document.id);
+        if (!active) return;
+        setDocuments(rows => rows.map(row => row.id === document.id ? { ...row, ...status } : row));
+        if (status.parse_status === 'success') setReload(n => n + 1);
+      } catch (error) {
+        if (active) setDocumentError(getErrorText(error));
       }
     };
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
-  });
-}
+    const timer = window.setTimeout(poll, 2000);
+    return () => { active = false; window.clearTimeout(timer); };
+  }, [document, reload]);
 
-async function saveEvaluationDraftFile(projectId: number | null, file: File | null): Promise<void> {
-  if (!projectId || typeof window === 'undefined' || !window.indexedDB) return;
-  const db = await openEvaluationDraftDb();
-  await new Promise<void>((resolve, reject) => {
-    const tx = db.transaction(EVALUATION_DRAFT_FILE_STORE, 'readwrite');
-    const store = tx.objectStore(EVALUATION_DRAFT_FILE_STORE);
-    const key = String(projectId);
-    if (file) {
-      store.put(file, key);
-    } else {
-      store.delete(key);
+  useEffect(() => {
+    if (!selection || document?.parse_status !== 'success') return;
+    let active = true;
+    setLoading(true);
+    fetchEvaluationSource(projectId, selection.documentId, selection.runId).then(result => {
+      if (active) setSource(result);
+    }).catch(error => { if (active) setRunError(getErrorText(error)); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [projectId, selection, document?.parse_status]);
+
+  function bind(documentId: number, runId?: number) {
+    setSource(null);
+    setDraftId(runId === undefined ? null : String(runId));
+    setRunError('');
+    setDocumentError('');
+    setLoading(false);
+    selectedId.current = documentId;
+    select({ documentId, runId });
+    rememberRequirement(projectId, documentId);
+  }
+  async function upload(file: File) {
+    setUploading(true);
+    setDocumentError('');
+    try {
+      const uploaded = await uploadRequirementDocument(projectId, file, 'evaluation');
+      if (!uploaded.success) throw new Error('需求上传失败');
+      setDocuments(rows => [{
+        doc_type: 'requirement', content_preview: '', linked_test_case_count: 0, ...rows.find(row => row.id === uploaded.id),
+        ...uploaded, parse_error: null,
+      }, ...rows.filter(row => row.id !== uploaded.id)]);
+      bind(uploaded.id);
+    } catch (error) {
+      setDocumentError(getErrorText(error));
+    } finally {
+      setUploading(false);
     }
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
-  });
-  db.close();
-}
-
-async function loadEvaluationDraftFile(projectId: number | null): Promise<File | null> {
-  if (!projectId || typeof window === 'undefined' || !window.indexedDB) return null;
-  const db = await openEvaluationDraftDb();
-  const file = await new Promise<File | null>((resolve, reject) => {
-    const tx = db.transaction(EVALUATION_DRAFT_FILE_STORE, 'readonly');
-    const request = tx.objectStore(EVALUATION_DRAFT_FILE_STORE).get(String(projectId));
-    request.onsuccess = () => resolve(request.result instanceof File ? request.result : null);
-    request.onerror = () => reject(request.error);
-  });
-  db.close();
-  return file;
-}
-
-type UseEvaluationResourcesParams = {
-  projectId: number | null;
-  view: EvaluationView;
-  evalResult: QualityReport | null;
-};
-
-/**
- * 资源状态层：只负责页面状态与数据加载副作用。
- * 评估动作（提交、导出、入库）由 useEvaluationActions 承担，避免单个 hook 职责过重。
- */
-export function useEvaluationResources({
-  projectId,
-  view,
-  evalResult,
-}: UseEvaluationResourcesParams) {
-  /**
-   * 历史趋势图只保留可绘制的点，避免后端某些历史项没有指标时把整张图“拉空”。
-   */
-  const normalizeHistory = (list: EvaluationHistoryPoint[]): EvaluationHistoryPoint[] => (
-    list.filter((item) =>
-        item.precision !== null
-        || item.recall !== null
-        || item.f1_score !== null
-        || item.coverage_jaccard !== null,
-    )
-  );
-
-  const [loading, setLoading] = useState<LoadingType>(null);
-  const [file, setFile] = useState<File | null>(null);
-  const [uploadedReferenceFilename, setUploadedReferenceFilename] = useState('');
-  const [loadedReferenceFilename, setLoadedReferenceFilename] = useState('');
-  const [baselineText, setBaselineText] = useState('');
-  const [history, setHistory] = useState<EvaluationHistoryPoint[]>([]);
-  const [runHistory, setRunHistory] = useState<EvaluationRunRecord[]>([]);
-  const [selectedRunId, setSelectedRunId] = useState<number | null>(null);
-  const [toastMsg, setToastMsg] = useState<ToastMessage | null>(null);
-  const fileRevision = useRef(0);
-
-  const [uiEvalJourney, setUiEvalJourney] = useState('');
-  const [apiEvalSpec, setApiEvalSpec] = useState('');
-
-  useEffect(() => {
-    let cancelled = false;
-    const revision = ++fileRevision.current;
-    setBaselineText('');
-    setHistory([]);
-    setRunHistory([]);
-    setSelectedRunId(null);
-    setFile(null);
-    setUploadedReferenceFilename('');
-    setLoadedReferenceFilename('');
-    void loadEvaluationDraftFile(projectId)
-      .then((storedFile) => {
-        if (cancelled || revision !== fileRevision.current || !storedFile) return;
-        setFile(storedFile);
-        setUploadedReferenceFilename(storedFile.name || '');
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, [projectId]);
-
-  const setPersistentFile = (nextFile: File | null) => {
-    fileRevision.current += 1;
-    setFile(nextFile);
-    void saveEvaluationDraftFile(projectId, nextFile).catch(() => {});
-  };
-
-  /**
-   * 评估结果变更后主动刷新历史趋势，保证图表与当前结果同源。
-   */
-  useEffect(() => {
-    if (!projectId) return;
-    let cancelled = false;
-
-    void fetchEvaluationHistory(projectId)
-      .then((res) => {
-        if (cancelled) return;
-        setHistory(normalizeHistory(res.history));
-      })
-      .catch(() => {
-        if (!cancelled) setHistory([]);
-      });
-    return () => { cancelled = true; };
-  }, [projectId, evalResult]);
-
-  useEffect(() => {
-    if (!projectId || (view !== 'root' && view !== 'testcase')) return;
-    let cancelled = false;
-
-    void fetchAgentRunHistory(projectId)
-      .then((rows) => { if (!cancelled) setRunHistory(rows); })
-      .catch(() => {
-        if (!cancelled) setRunHistory([]);
-      });
-    return () => { cancelled = true; };
-  }, [projectId, view]);
-
-  return {
-    loading,
-    setLoading,
-    file,
-    setFile: setPersistentFile,
-    uploadedReferenceFilename,
-    setUploadedReferenceFilename,
-    loadedReferenceFilename,
-    setLoadedReferenceFilename,
-    history,
-    setHistory,
-    runHistory,
-    setRunHistory,
-    selectedRunId,
-    setSelectedRunId,
-    baselineText,
-    setBaselineText,
-    toastMsg,
-    setToastMsg,
-    uiEvalJourney,
-    setUiEvalJourney,
-    apiEvalSpec,
-    setApiEvalSpec,
-  };
+  }
+  const runText = draftId ?? String(source?.run_id ?? '');
+  const bound = Boolean(source && source.document_id === document?.id && document.parse_status === 'success'
+    && runText === String(source.run_id) && !uploading);
+  function applyRun() {
+    if (!document) return;
+    const id = Number(runText);
+    if (!/^[1-9]\d*$/.test(runText) || !Number.isSafeInteger(id)) {
+      setRunError('无效 Run ID，请输入正整数');
+      return;
+    }
+    bind(document.id, id);
+  }
+  return { documents, document, source, bound, loading, uploading, documentError, runError, runText,
+    changeRunText: (value: string) => { setDraftId(value); setRunError(''); },
+    bind, applyRun, upload, retryDocuments: () => setReload(n => n + 1) };
 }

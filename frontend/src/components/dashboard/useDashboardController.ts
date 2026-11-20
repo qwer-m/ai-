@@ -1,9 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Project } from '../pages/ProjectManagement';
 import { api } from '../../utils/api';
-import { dashboardNavItems, findParentKeyByChild, normalizeDashboardActiveTab } from './model/dashboardNavigation';
+import { dashboardNavItems, normalizeDashboardActiveTab } from './model/dashboardNavigation';
 import type { HealthResponse, LogEntry } from './model/types';
-import type { AutomationEvaluationReport, QualityReport } from '../evaluation/state/types';
 
 const safeGetItem = (key: string) => {
   try {
@@ -49,7 +48,6 @@ export function useDashboardController() {
   const [activeTab, setActiveTab] = useState(() =>
     normalizeDashboardActiveTab(safeGetItem('currentActiveTab'), dashboardNavItems),
   );
-  const [expandedKeys, setExpandedKeys] = useState<string[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [projectsLoading, setProjectsLoading] = useState(true);
   const [projectsError, setProjectsError] = useState<string | null>(null);
@@ -60,23 +58,8 @@ export function useDashboardController() {
   const [healthLoading, setHealthLoading] = useState(false);
   const [healthError, setHealthError] = useState<string | null>(null);
   const [health, setHealth] = useState<HealthResponse | null>(null);
-  const [evalGenerated, setEvalGenerated] = useState('');
-  const [evalModified, setEvalModified] = useState('');
-  const [evalResult, setEvalResult] = useState<QualityReport | null>(null);
-  const [uiEvalScript, setUiEvalScript] = useState('');
-  const [uiEvalExec, setUiEvalExec] = useState('');
-  const [uiEvalOutput, setUiEvalOutput] = useState<AutomationEvaluationReport | null>(null);
-  const [apiEvalScript, setApiEvalScript] = useState('');
-  const [apiEvalExec, setApiEvalExec] = useState('');
-  const [apiEvalOutput, setApiEvalOutput] = useState<AutomationEvaluationReport | null>(null);
   const [showConfig, setShowConfig] = useState(false);
   const [configError, setConfigError] = useState<string | null>(null);
-
-  const toggleExpand = (key: string) => {
-    setExpandedKeys((previous) => (
-      previous.includes(key) ? previous.filter((item) => item !== key) : [...previous, key]
-    ));
-  };
 
   const handleOpenConfig = () => {
     setConfigError(null);
@@ -126,11 +109,6 @@ export function useDashboardController() {
 
   useEffect(() => {
     safeSetItem('currentActiveTab', activeTab);
-    const parentKey = findParentKeyByChild(dashboardNavItems, activeTab);
-    if (!parentKey) return;
-    setExpandedKeys((previous) => (
-      previous.includes(parentKey) ? previous : [...previous, parentKey]
-    ));
   }, [activeTab]);
 
   useEffect(() => {
@@ -285,8 +263,6 @@ export function useDashboardController() {
     handleToggleTheme: () => setThemeMode((previous) => (previous === 'dark' ? 'light' : 'dark')),
     activeTab,
     setActiveTab,
-    expandedKeys,
-    toggleExpand,
     projects,
     projectsLoading,
     projectsError,
@@ -303,24 +279,6 @@ export function useDashboardController() {
     health,
     healthLoading,
     healthError,
-    evalGenerated,
-    setEvalGenerated,
-    evalModified,
-    setEvalModified,
-    evalResult,
-    setEvalResult,
-    uiEvalScript,
-    setUiEvalScript,
-    uiEvalExec,
-    setUiEvalExec,
-    uiEvalOutput,
-    setUiEvalOutput,
-    apiEvalScript,
-    setApiEvalScript,
-    apiEvalExec,
-    setApiEvalExec,
-    apiEvalOutput,
-    setApiEvalOutput,
     showConfig,
     configError,
     handleOpenConfig,

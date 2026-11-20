@@ -117,11 +117,12 @@ body.ui-overhaul-v4 .api-automation-shell {
   min-height: 100%;
 }
 
-body.ui-overhaul-v4 .knowledge-base-shell {
+body.ui-overhaul-v4 .workbench-shell {
   border: 1px solid var(--fd-border);
-  border-radius: 16px;
+  border-radius: var(--fd-card-radius-lg);
   background: linear-gradient(180deg, var(--fd-surface) 0%, var(--fd-surface-soft) 100%);
   padding: 12px;
+  min-width: 0;
 }
 
 body.ui-overhaul-v4 .knowledge-toolbar-card {

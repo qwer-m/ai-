@@ -22,7 +22,6 @@ def cleanup_project_test_data(db: Any, project_id: int | None) -> None:
         return
 
     from core.db.model_defs import (
-        APIExecution,
         AgentApproval,
         AgentDefinition,
         AgentNodeRun,
@@ -34,24 +33,14 @@ def cleanup_project_test_data(db: Any, project_id: int | None) -> None:
         KnowledgeDocument,
         LogEntry,
         Project,
-        RagEvalRun,
-        RagEvalSampleResult,
-        RecallMetric,
-        StandardInterface,
-        UIErrorOperation,
-        UIExecution,
-        UITestCase,
     )
+
+    from modules.system_components.repositories.project_repository import ProjectRepository
 
     try:
         pid = int(project_id)
-        db.query(UIErrorOperation).filter(UIErrorOperation.project_id == pid).delete(synchronize_session=False)
-        db.query(UIExecution).filter(UIExecution.project_id == pid).delete(synchronize_session=False)
-        db.query(APIExecution).filter(APIExecution.project_id == pid).delete(synchronize_session=False)
+        ProjectRepository(db).delete_retired_project_rows(project_id=pid)
         db.query(LogEntry).filter(LogEntry.project_id == pid).delete(synchronize_session=False)
-        db.query(RecallMetric).filter(RecallMetric.project_id == pid).delete(synchronize_session=False)
-        db.query(StandardInterface).filter(StandardInterface.project_id == pid).delete(synchronize_session=False)
-        db.query(UITestCase).filter(UITestCase.project_id == pid).delete(synchronize_session=False)
         agent_run_ids = db.query(AgentRun.id).filter(AgentRun.project_id == pid)
         agent_ids = db.query(AgentDefinition.id).filter(AgentDefinition.project_id == pid)
         tool_ids = db.query(AgentToolDefinition.id).filter(AgentToolDefinition.project_id == pid)
@@ -78,12 +67,6 @@ def cleanup_project_test_data(db: Any, project_id: int | None) -> None:
         db.query(AgentToolDefinition).filter(AgentToolDefinition.id.in_(tool_ids)).delete(
             synchronize_session=False
         )
-        run_ids = [row[0] for row in db.query(RagEvalRun.id).filter(RagEvalRun.project_id == pid).all()]
-        if run_ids:
-            db.query(RagEvalSampleResult).filter(RagEvalSampleResult.run_id.in_(run_ids)).delete(
-                synchronize_session=False
-            )
-            db.query(RagEvalRun).filter(RagEvalRun.id.in_(run_ids)).delete(synchronize_session=False)
         db.query(KnowledgeDocument).filter(KnowledgeDocument.project_id == pid).update(
             {KnowledgeDocument.source_doc_id: None},
             synchronize_session=False,

@@ -1,36 +1,20 @@
-# Use official Python runtime as a parent image
-FROM python:3.11-slim
+FROM mambaorg/micromamba:2.3.2
 
-# Set environment variables
-ENV PYTHONDONTWRITEBYTECODE=1
-ENV PYTHONUNBUFFERED=1
-ENV PYTHONPATH=/app
-
-# Set work directory
+USER root
 WORKDIR /app
+ENV PATH="/opt/conda/bin:${PATH}" \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/app
 
-# Replace Debian sources with Aliyun mirrors for faster download
-RUN sed -i 's/deb.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list.d/debian.sources || sed -i 's/deb.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list
+# 与本地共用 Python 和 CPU 推理依赖，curl 供容器健康检查使用。
+COPY environment.yml /tmp/environment.yml
+RUN micromamba install -y -n base -f /tmp/environment.yml curl \
+    && micromamba clean --all --yes
+COPY backend/requirements.txt .
+RUN python -m pip install --no-cache-dir -r requirements.txt \
+    && python -m pip check
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
-    gcc \
-    curl \
-    && rm -rf /var/lib/apt/lists/*
-
-# Install python dependencies
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt -i https://mirrors.aliyun.com/pypi/simple/
-
-# Install Playwright browsers (for UI Automation)
-# Use python -m playwright to ensure we use the installed module
-RUN python -m playwright install --with-deps chromium
-
-# Copy project
-COPY . .
-
-# Expose port
+COPY backend/ .
 EXPOSE 8000
-
-# Default command (overridden in docker-compose)
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]

@@ -5,6 +5,7 @@ from typing import Any
 
 from sqlalchemy import select
 
+from core.db import db_utc_now
 from core.db.database import SessionLocal
 from core.db.model_defs import AgentRun, AgentRunDispatch
 from core.settings.config import settings
@@ -19,7 +20,7 @@ def recover_expired_agent_runs(*, limit: int = 20) -> dict[str, Any]:
     recovered: list[int] = []
     expired: list[int] = []
     try:
-        now = datetime.utcnow()
+        now = db_utc_now()
         stale_before = now - timedelta(seconds=int(settings.AGENT_RUN_LEASE_SECONDS))
         expired_run_ids = db.scalars(
             select(AgentRun.id)

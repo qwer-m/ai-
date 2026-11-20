@@ -12,7 +12,7 @@ type Props = {
   healthError: string | null;
   health: HealthResponse | null;
   onSelectProject: (projectId: number | null) => void;
-  onCreateProject: () => void;
+  onCreateProject?: () => void;
   onOpenConfig: () => void;
   onLogout: () => void;
 };
@@ -54,9 +54,9 @@ export function DashboardTopBar({
 
       <div className="d-flex gap-2 dashboard-topbar-right">
         <div className="d-flex gap-2 dashboard-action-cluster">
-          <Button variant="primary" size="sm" onClick={onCreateProject} className="btn-pro-primary d-flex align-items-center gap-2">
+          {onCreateProject && <Button aria-label="新建项目" variant="primary" size="sm" onClick={onCreateProject} className="btn-pro-primary d-flex align-items-center gap-2">
             <FaPlus /> <span className="d-none d-md-inline">新建项目</span>
-          </Button>
+          </Button>}
 
           <Button
             variant="light"

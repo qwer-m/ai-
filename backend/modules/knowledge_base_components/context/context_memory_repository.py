@@ -6,7 +6,6 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
 import hashlib
 import json
 import re
@@ -16,6 +15,7 @@ from typing import Any, Mapping, Sequence
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
+from core.db import db_utc_now
 from core.db.model_defs import AgentContextRecord, AgentRun, Project
 from modules.knowledge_base_components.ports.context_memory_port import (
     ContextBudget,
@@ -32,13 +32,6 @@ MEMORY_SOURCE_KINDS = frozenset({
     "long_term_memory",
     "validated_feedback",
 })
-
-
-def _utc_now() -> datetime:
-    """数据库 DateTime 列统一保存无时区 UTC，避免 aware/naive 比较漂移。"""
-
-    return datetime.now(timezone.utc).replace(tzinfo=None)
-
 
 def _query_terms(text: str) -> tuple[str, ...]:
     raw_terms = re.findall(r"[\u4e00-\u9fff]{2,}|[a-z0-9_]{2,}", str(text or "").casefold())
@@ -131,7 +124,7 @@ class ContextMemoryRepository:
                 & (AgentContextRecord.scope_id == str(query.user_id))
                 & (AgentContextRecord.user_id == query.user_id)
             )
-        now = _utc_now()
+        now = db_utc_now()
         feedback_scope_filter = (
             (AgentContextRecord.source_kind != "validated_feedback")
             | (
@@ -386,7 +379,7 @@ class ContextMemoryRepository:
         if not str(reason or "").strip():
             raise ValueError("撤销长期上下文必须说明原因")
         record.status = "revoked"
-        record.revoked_at = _utc_now()
+        record.revoked_at = db_utc_now()
         record.revocation_reason = str(reason).strip()
         self.db.add(record)
         self.db.flush()
@@ -426,7 +419,7 @@ class ContextMemoryRepository:
             origin_run_id=origin_run_id,
         )
         old.status = "revoked"
-        old.revoked_at = _utc_now()
+        old.revoked_at = db_utc_now()
         old.revocation_reason = f"{str(reason).strip()}; replaced_by:memory:{replacement.id}"
         old.replaced_by_id = replacement.id
         self.db.add(old)
@@ -471,7 +464,7 @@ class ContextMemoryRepository:
         record.content_hash = _content_hash(content)
         record.status = "active"
         record.confirmed_by_user_id = int(confirmed_by_user_id)
-        record.confirmed_at = _utc_now()
+        record.confirmed_at = db_utc_now()
         record.valid_from = record.valid_from or record.confirmed_at
         self.db.add(record)
         self.db.flush()
@@ -486,7 +479,7 @@ class ContextMemoryRepository:
         if not str(reason or "").strip():
             raise ValueError("拒绝长期上下文候选必须说明原因")
         record.status = "revoked"
-        record.revoked_at = _utc_now()
+        record.revoked_at = db_utc_now()
         record.revocation_reason = str(reason).strip()
         self.db.add(record)
         self.db.flush()

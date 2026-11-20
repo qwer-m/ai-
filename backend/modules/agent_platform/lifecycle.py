@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
+from core.db import db_utc_now
 from core.db.model_defs import AgentRun
 
 if TYPE_CHECKING:
@@ -58,7 +59,7 @@ def require_model_request_claim(context: Any) -> None:
         run = AgentRunRepository(db).get_run_control_for_update(run_id=context.run_id)
         if run is None or run.user_id != context.user_id or run.project_id != context.project_id:
             raise RunLeaseLost("模型请求与当前运行的用户或项目归属不一致")
-        assert_run_claim(run, context.claim_token, now=datetime.utcnow())
+        assert_run_claim(run, context.claim_token, now=db_utc_now())
 
 
 def release_run_lease(run: AgentRun) -> None:
@@ -98,7 +99,7 @@ def transition_run(
         return False
     if target not in _ALLOWED_TRANSITIONS.get(current, ()):
         raise InvalidRunTransition(f"运行状态不能从 {current} 转换为 {target}")
-    at = now or datetime.utcnow()
+    at = now or db_utc_now()
     run.status = target
     run.error_message = error_message
     run.finished_at = at if target in TERMINAL_RUN_STATUSES else None

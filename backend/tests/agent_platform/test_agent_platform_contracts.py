@@ -603,7 +603,7 @@ def test_builtin_workflow_is_data_driven_and_references_registered_definitions()
     assert GENERATION_EXECUTION_LIMITS["max_total_tokens"] == 300000
     assert GENERATION_EXECUTION_LIMITS["max_requests"] == 32
     evaluation_workflows = [item for item in BUILTIN_WORKFLOW_SPECS if item["workflow_key"] != "test_generation"]
-    assert len(evaluation_workflows) == 3
+    assert [item["workflow_key"] for item in evaluation_workflows] == ["test_case_evaluation"]
     for spec in BUILTIN_WORKFLOW_SPECS:
         execution = parse_execution_definition(spec["definition"])
         if isinstance(execution, AgentProgramDefinition):

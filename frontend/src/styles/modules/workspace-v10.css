@@ -60,14 +60,6 @@ body.ui-overhaul-v4 .evaluation-shell .evaluation-testcase-card .panel-card-prim
   margin-top: 8px;
 }
 
-body.ui-overhaul-v4 .automation-eval-card .form-text {
-  line-height: 1.45;
-}
-
-body.ui-overhaul-v4 .automation-eval-card .panel-card-head {
-  margin-bottom: 8px !important;
-}
-
 body.ui-overhaul-v4 .knowledge-toolbar-card .panel-card-head {
   margin-bottom: 8px;
 }
@@ -85,7 +77,6 @@ body.ui-overhaul-v4 .knowledge-content-area .doc-card .btn {
   border-radius: 9px !important;
 }
 
-body.ui-overhaul-v4 .evaluation-shell .automation-eval-card,
 body.ui-overhaul-v4 .evaluation-shell .evaluation-testcase-card {
   min-height: 560px;
 }
@@ -99,16 +90,8 @@ body.ui-overhaul-v4 .evaluation-shell .evaluation-testcase-stack {
 }
 
 body.ui-overhaul-v4 .evaluation-shell .evaluation-testcase-card {
-  overflow: visible !important;
-  position: static !important;
   z-index: auto !important;
   height: auto;
-}
-
-body.ui-overhaul-v4 .evaluation-shell .automation-eval-output {
-  border-radius: 12px;
-  border: 1px solid color-mix(in srgb, var(--fd-border) 92%, transparent);
-  background: color-mix(in srgb, var(--fd-surface-soft) 80%, transparent);
 }
 
 body.ui-overhaul-v4 .evaluation-shell .evaluation-testcase-card .panel-card-primary-action {
@@ -117,18 +100,12 @@ body.ui-overhaul-v4 .evaluation-shell .evaluation-testcase-card .panel-card-prim
   float: none !important;
 }
 
-body.ui-overhaul-v4 .dashboard-content-host[data-active-tab='eval'] .evaluation-shell,
 body.ui-overhaul-v4 .dashboard-content-host[data-active-tab='eval-testcase'] .evaluation-shell,
-body.ui-overhaul-v4 .dashboard-content-host[data-active-tab='eval-rag'] .evaluation-shell,
 body.ui-overhaul-v4 .dashboard-content-host[data-active-tab='kb'] .knowledge-base-shell {
   padding-bottom: 10px;
 }
 
-body.ui-overhaul-v4 .dashboard-content-host[data-active-tab='eval'],
-body.ui-overhaul-v4 .dashboard-content-host[data-active-tab='eval-testcase'],
-body.ui-overhaul-v4 .dashboard-content-host[data-active-tab='eval-ui'],
-body.ui-overhaul-v4 .dashboard-content-host[data-active-tab='eval-api'],
-body.ui-overhaul-v4 .dashboard-content-host[data-active-tab='eval-rag'] {
+body.ui-overhaul-v4 .dashboard-content-host[data-active-tab='eval-testcase'] {
   overflow-y: auto !important;
 }
 
@@ -137,7 +114,6 @@ body.ui-overhaul-v4 .dashboard-content-host[data-active-tab='eval-testcase'] .ev
 }
 
 @media (max-width: 1200px) {
-  body.ui-overhaul-v4 .evaluation-shell .automation-eval-card,
   body.ui-overhaul-v4 .evaluation-shell .evaluation-testcase-card {
     min-height: 0;
   }

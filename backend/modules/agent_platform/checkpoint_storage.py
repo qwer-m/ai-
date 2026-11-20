@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from copy import deepcopy
 from collections import Counter
-from datetime import datetime
 import hashlib
 import json
 from typing import Any
@@ -13,6 +12,7 @@ from uuid import uuid4
 from sqlalchemy import select
 from sqlalchemy.orm import Session, object_session
 
+from core.db import db_utc_now
 from core.db.model_defs import (
     AgentArtifactBlob, AgentJournalBranch, AgentActionReceiptRecord, AgentValidatedCallRecord,
     AgentNodeRun, AgentRun,
@@ -94,7 +94,7 @@ class ArtifactStore:
                 "id": ref["id"], "user_id": self.user_id, "project_id": self.project_id,
                 "sha256": digest, "encoding": _ENCODING, "payload": payload,
                 "payload_hash": content_hash(payload), "logical_bytes": len(encoded),
-                "stored_bytes": len(canonical_bytes(payload)), "created_at": datetime.utcnow(),
+                "stored_bytes": len(canonical_bytes(payload)), "created_at": db_utc_now(),
             }
             return ref
 

@@ -248,12 +248,6 @@ tool_registry = ToolRegistry()
 
 
 # 内置领域定义单独维护，平台注册表只负责可信处理器的索引。
-from .automation_evaluation_workflow import (  # noqa: E402
-    BUILTIN_AGENT_SPECS as AUTOMATION_EVALUATION_AGENT_SPECS,
-    BUILTIN_TOOL_SPECS as AUTOMATION_EVALUATION_TOOL_SPECS,
-    BUILTIN_WORKFLOW_SPECS as AUTOMATION_EVALUATION_WORKFLOW_SPECS,
-    register_automation_evaluation_tools,
-)
 from .test_generation_builtin_specs import (  # noqa: E402
     BUILTIN_AGENT_SPECS as TEST_GENERATION_AGENT_SPECS,
     BUILTIN_TOOL_SPECS as TEST_GENERATION_TOOL_SPECS,
@@ -279,26 +273,22 @@ from .context_agent_tools import (  # noqa: E402
 
 BUILTIN_AGENT_SPECS = (
     *TEST_GENERATION_AGENT_SPECS,
-    *AUTOMATION_EVALUATION_AGENT_SPECS,
     *TEST_CASE_EVALUATION_AGENT_SPECS,
 )
 BUILTIN_TOOL_SPECS = (
     *DOCUMENT_AGENT_TOOL_SPECS,
     *CONTEXT_AGENT_TOOL_SPECS,
     *TEST_GENERATION_TOOL_SPECS,
-    *AUTOMATION_EVALUATION_TOOL_SPECS,
     *TEST_CASE_EVALUATION_TOOL_SPECS,
 )
 BUILTIN_WORKFLOW_SPECS = (
     *TEST_GENERATION_WORKFLOW_SPECS,
-    *AUTOMATION_EVALUATION_WORKFLOW_SPECS,
     *TEST_CASE_EVALUATION_WORKFLOW_SPECS,
 )
 
 register_document_agent_tools(tool_registry)
 register_context_tools(tool_registry)
 register_test_generation_tools(tool_registry)
-register_automation_evaluation_tools(tool_registry)
 register_test_case_evaluation_tools(tool_registry)
 
 

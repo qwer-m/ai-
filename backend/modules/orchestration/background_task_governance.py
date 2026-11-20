@@ -23,7 +23,6 @@ class BackgroundTaskKind(str, Enum):
     CLEANUP_LOGS = "cleanup_logs"
     AGENT_RUN = "agent_run"
     AGENT_RUN_RECOVERY = "agent_run_recovery"
-    RAG_EVAL_RUN = "rag_eval_run"
 
 
 class TaskBackend(str, Enum):
@@ -216,16 +215,6 @@ BACKGROUND_TASK_PROFILES: dict[str, BackgroundTaskProfile] = _profiles_by_key(
             recommended_runtime="celery",
             notes="定时扫描租约过期的 Agent Run，并通过统一调度器重新投递。",
         ),
-        _profile(
-            key="rag_eval_run_worker",
-            category=BackgroundTaskCategory.DURABLE_JOB,
-            owner="rag_eval",
-            user_visible=True,
-            durable=True,
-            status_source="rag_eval_runs",
-            recommended_runtime="celery",
-            notes="Supports stop/resume through persisted cursor and stop_requested fields.",
-        ),
     )
 )
 
@@ -276,15 +265,6 @@ BACKGROUND_TASK_SPECS: dict[BackgroundTaskKind, BackgroundTaskSpec] = _specs_by_
             profile_key="agent_run_recovery",
             task_name=TaskName.RECOVER_EXPIRED_AGENT_RUNS,
             default_reason="scheduled_agent_run_recovery",
-        ),
-        _spec(
-            kind=BackgroundTaskKind.RAG_EVAL_RUN,
-            backend=TaskBackend.CELERY,
-            category=BackgroundTaskCategory.DURABLE_JOB,
-            business_type="rag_eval_run",
-            profile_key="rag_eval_run_worker",
-            task_name=TaskName.RUN_RAG_EVAL,
-            default_reason="rag_eval_run_worker",
         ),
     )
 )

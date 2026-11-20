@@ -39,12 +39,7 @@ body.theme-dark.ui-overhaul-v4 .dashboard-sidebar-surface {
 body.ui-overhaul-v4 .ui-section-card,
 body.ui-overhaul-v4 .bento-card,
 body.ui-overhaul-v4 .knowledge-toolbar-card,
-body.ui-overhaul-v4 .knowledge-content-area,
-body.ui-overhaul-v4 .rag-console .rag-console-surface,
-body.ui-overhaul-v4 .rag-console .rag-console-panel,
-body.ui-overhaul-v4 .rag-console .rag-report-block,
-body.ui-overhaul-v4 .rag-console .rag-report-card,
-body.ui-overhaul-v4 .rag-console .rag-report-subpanel {
+body.ui-overhaul-v4 .knowledge-content-area {
   border-radius: var(--fd-card-radius-lg) !important;
 }
 
@@ -225,37 +220,6 @@ body.ui-overhaul-v4 .alert {
   border-radius: 12px;
 }
 
-body.ui-overhaul-v4 .rag-console .rag-dataset-row .form-group,
-body.ui-overhaul-v4 .rag-console .rag-dataset-row .col-12 {
-  min-width: 0;
-}
-
-body.ui-overhaul-v4 .rag-console .rag-dataset-actions {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-body.ui-overhaul-v4 .rag-console .rag-report-grid.rag-report-grid-wide {
-  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
-}
-
-body.ui-overhaul-v4 .rag-console .rag-report-grid.rag-report-grid-tight {
-  grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
-}
-
-body.ui-overhaul-v4 .rag-console .rag-report-block-run .ui-actions-row .btn {
-  min-width: 112px;
-}
-
-body.ui-overhaul-v4 .rag-console .rag-report-action-cell {
-  min-width: 260px;
-}
-
-body.ui-overhaul-v4 .rag-console .rag-candidate-modal .modal-body .form-label {
-  margin-bottom: 4px;
-}
-
 @media (max-width: 1200px) {
   body.ui-overhaul-v4 .grid-cols-5 {
     grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -264,25 +228,12 @@ body.ui-overhaul-v4 .rag-console .rag-candidate-modal .modal-body .form-label {
   body.ui-overhaul-v4 .grid-cols-4 {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
-
-  body.ui-overhaul-v4 .rag-console .rag-report-grid.rag-report-grid-tight {
-    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
-  }
 }
 
 @media (max-width: 991px) {
   body.ui-overhaul-v4 .dashboard-main-surface,
   body.ui-overhaul-v4 .dashboard-sidebar-surface {
     border-radius: 14px !important;
-  }
-
-  body.ui-overhaul-v4 .rag-console .rag-report-grid.rag-report-grid-wide,
-  body.ui-overhaul-v4 .rag-console .rag-report-grid.rag-report-grid-tight {
-    grid-template-columns: repeat(1, minmax(0, 1fr)) !important;
-  }
-
-  body.ui-overhaul-v4 .rag-console .rag-dataset-row {
-    row-gap: 10px;
   }
 
 }
