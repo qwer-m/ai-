@@ -7,11 +7,9 @@ const coverage: Record<string, string> = { full: '完整', partial: '部分', mi
 const changes: Record<string, string> = {
   missing_points: '人工补足遗漏', modifications: '逻辑修正', hallucinations: '缺少需求依据',
 };
-const percent = (rate: number | null) => rate === null ? '—' : (rate * 100).toFixed(1) + '%';
+type Props = { artifact: TestEvaluationArtifact | null; projectId: number | null; caseCount: number | null };
 
-type Props = { artifact: TestEvaluationArtifact | null; projectId: number | null };
-
-export function TestCaseEvaluationReport({ artifact, projectId }: Props) {
+export function TestCaseEvaluationReport({ artifact, projectId, caseCount }: Props) {
   return <Tab.Container id="benchmark-coverage" defaultActiveKey="overview" transition={false} mountOnEnter>
     <div className="coverage-section-bar">
       <Nav className="coverage-section-tabs" aria-label="覆盖率报告内容">
@@ -22,9 +20,9 @@ export function TestCaseEvaluationReport({ artifact, projectId }: Props) {
       {artifact && <small className="text-muted">生成 Run #{artifact.source_run_id} · 评测 Run #{artifact.evaluation_run_id}</small>}
     </div>
     <Tab.Content>
-      <Tab.Pane eventKey="overview">{artifact
-        ? <CoverageOverview report={artifact.evaluation} />
-        : <p className="small text-muted">评测完成后显示覆盖率指标。</p>}</Tab.Pane>
+      <Tab.Pane eventKey="overview">
+        <CoverageOverview report={artifact?.evaluation} caseCount={caseCount} />
+      </Tab.Pane>
       <Tab.Pane eventKey="evidence">{artifact && <CoverageEvidence report={artifact.evaluation} />}</Tab.Pane>
       <Tab.Pane eventKey="feedback">{artifact && projectId !== null &&
         <TestCaseFeedbackPanel projectId={projectId} sourceRunId={artifact.source_run_id} evaluationRunId={artifact.evaluation_run_id} />}</Tab.Pane>
@@ -32,23 +30,19 @@ export function TestCaseEvaluationReport({ artifact, projectId }: Props) {
   </Tab.Container>;
 }
 
-function CoverageOverview({ report }: { report: QualityReportPayload }) {
-  const base = report.requirement_baseline;
-  const total = base.requirement_points.length;
-  return <div>
-    <div className="row g-2">
-      {([
-        ['生成稿正文覆盖率', base.generated_coverage_rate, base.generated_coverage_count, total],
-        ['人工稿正文覆盖率', base.modified_coverage_rate, base.modified_coverage_count, total],
-        ['人工基准召回率', report.metrics.recall, base.covered_by_both.length, base.modified_coverage_count],
-      ] as const).map(([name, rate, count, denominator]) => <div className="col-12 col-md-4" key={name}>
-        <div className="border rounded p-3 h-100"><div className="small">{name}</div>
-          <strong className="fs-4">{percent(rate)}</strong> <span className="small text-muted">{count} / {denominator} 组</span>
-        </div>
-      </div>)}
-    </div>
-    <p className="small text-muted mt-2">正文 {base.groups.length} 组 · 计分 {total} 组 · 跳过 {base.groups.filter(group => group.excluded).length} 组</p>
-    <p>{base.summary}</p>
+function CoverageOverview({ report, caseCount }: { report?: QualityReportPayload; caseCount: number | null }) {
+  const base = report?.requirement_baseline;
+  return <div className="coverage-overview">
+    <section aria-labelledby="effective-case-heading">
+      <h4 id="effective-case-heading">有效测试用例覆盖率</h4>
+      <p>待定义有效用例的判定条件和统计范围。</p>
+      {caseCount !== null && <small>本次生成 {caseCount} 条用例</small>}
+    </section>
+    <section aria-labelledby="test-point-heading">
+      <h4 id="test-point-heading">测试点覆盖率</h4>
+      <p>待定义测试点清单和覆盖标准。</p>
+      {base && <small>模型评审记录 · 正文 {base.groups.length} 组 · 生成稿判为完整 {base.generated_coverage_count} 组 · 跳过 {base.groups.filter(group => group.excluded).length} 组</small>}
+    </section>
   </div>;
 }
 
@@ -79,5 +73,6 @@ function CoverageEvidence({ report }: { report: QualityReportPayload }) {
       </tr>)}</tbody>
     </table></div>
     {!visible.length && <p role="status">没有符合筛选条件的正文要求。</p>}
+    {base.summary && <details><summary>模型评审摘要</summary><p>{base.summary}</p></details>}
   </div>;
 }

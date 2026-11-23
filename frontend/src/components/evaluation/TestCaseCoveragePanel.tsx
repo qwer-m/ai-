@@ -82,7 +82,7 @@ export function TestCaseCoveragePanel({ resources: r, onLog }: Props) {
         <Tab.Content>
           <Tab.Pane eventKey="coverage">
             <TestCaseEvaluationReport key={report?.evaluation_run_id ?? 'pending'}
-              artifact={report} projectId={source?.project_id ?? null} />
+              artifact={report} projectId={source?.project_id ?? null} caseCount={bound && source ? source.cases.length : null} />
           </Tab.Pane>
           <Tab.Pane eventKey="assertions">
             <AssertionQualityPanel source={bound ? source : null} artifact={report} />

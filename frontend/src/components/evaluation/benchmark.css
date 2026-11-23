@@ -32,6 +32,11 @@
 @media (max-width: 900px) { .benchmark-materials { grid-template-columns: 1fr; } }
 
 .benchmark-coverage-rows { max-height: 32rem; overflow: auto; }
+.coverage-overview > section { padding: .8rem 0; }
+.coverage-overview > section + section { border-top: 1px solid var(--fd-border); }
+.coverage-overview h4 { margin: 0; font-size: 1rem; font-weight: 650; }
+.coverage-overview p { margin: .35rem 0; font-size: .9rem; }
+.coverage-overview small { color: var(--fd-text-soft); }
 .benchmark-coverage-rows thead { position: sticky; top: 0; z-index: 1; background: var(--bs-body-bg); }
 
 .coverage-section-bar {
